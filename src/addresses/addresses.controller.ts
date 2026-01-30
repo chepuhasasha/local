@@ -2,7 +2,7 @@ import { Body, Controller, Post } from '@nestjs/common';
 import { AddressesService } from './addresses.service';
 import {
   AddressSearchResult,
-  SearchAddressesRequest,
+  type SearchAddressesRequest,
 } from './dto/search-addresses.dto';
 
 @Controller('addresses')
