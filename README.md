@@ -37,20 +37,21 @@
 npm install
 ```
 
-## Настройка базы данных
+## Настройка базы данных (docker-compose)
 
-1. Создайте базу и пользователя (пример для локального окружения):
+1. Запустите PostgreSQL через docker-compose:
 
    ```bash
-   createdb addresses
-   createuser addresses_user
+   docker-compose up -d
    ```
 
 2. Примените схему и индексы:
 
    ```bash
-   psql "postgresql://addresses_user@localhost:5432/addresses" -f scripts/init_db.sql
+   docker-compose exec -T postgres psql -U addresses_user -d addresses -f /app/scripts/init_db.sql
    ```
+
+   Команда использует путь `/app`, поэтому запускать её нужно из корня репозитория.
 
 ## Загрузка адресов
 
@@ -65,7 +66,7 @@ npm install
 2. Загрузите чанки в PostgreSQL:
 
    ```bash
-   export DATABASE_URL="postgresql://addresses_user@localhost:5432/addresses"
+   export DATABASE_URL="postgresql://addresses_user:addresses_password@localhost:5432/addresses"
    node scripts/load_addresses.js ./out 1000
    ```
 
@@ -76,7 +77,7 @@ npm install
 Перед запуском задайте строку подключения:
 
 ```bash
-export DATABASE_URL="postgresql://addresses_user@localhost:5432/addresses"
+export DATABASE_URL="postgresql://addresses_user:addresses_password@localhost:5432/addresses"
 ```
 
 Затем запустите сервис:
