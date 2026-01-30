@@ -21,78 +21,105 @@
   <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
   [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
 
-## Description
+## Описание
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+Сервис предоставляет простое API для поиска адресов. Данные берутся из
+`scripts/get_addresses.js`, сохраняются в PostgreSQL и доступны через HTTP.
 
-## Project setup
+## Требования
 
-```bash
-$ npm install
-```
+- Node.js 18+
+- PostgreSQL 14+
 
-## Compile and run the project
-
-```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
-```
-
-## Run tests
+## Установка зависимостей
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+npm install
 ```
 
-## Deployment
+## Настройка базы данных
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+1. Создайте базу и пользователя (пример для локального окружения):
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+   ```bash
+   createdb addresses
+   createuser addresses_user
+   ```
+
+2. Примените схему и индексы:
+
+   ```bash
+   psql "postgresql://addresses_user@localhost:5432/addresses" -f scripts/init_db.sql
+   ```
+
+## Загрузка адресов
+
+1. Скачайте и конвертируйте данные:
+
+   ```bash
+   node scripts/get_addresses.js --month 202512
+   ```
+
+   Чанки будут сохранены в `./out`.
+
+2. Загрузите чанки в PostgreSQL:
+
+   ```bash
+   export DATABASE_URL="postgresql://addresses_user@localhost:5432/addresses"
+   node scripts/load_addresses.js ./out 1000
+   ```
+
+   Второй аргумент — размер пакета вставки (по умолчанию 1000).
+
+## Запуск приложения
+
+Перед запуском задайте строку подключения:
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+export DATABASE_URL="postgresql://addresses_user@localhost:5432/addresses"
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+Затем запустите сервис:
 
-## Resources
+```bash
+npm run start:dev
+```
 
-Check out a few resources that may come in handy when working with NestJS:
+## API
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+### POST `/addresses/search`
 
-## Support
+Поиск адресов по строке пользователя.
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+```json
+{
+  "query": "Seoul",
+  "limit": 20,
+  "offset": 0,
+  "lang": "any"
+}
+```
 
-## Stay in touch
+- `query` — строка поиска (обязательно).
+- `limit` — максимум элементов (по умолчанию 20, максимум 50).
+- `offset` — смещение (по умолчанию 0).
+- `lang` — `ko`, `en` или `any` (по умолчанию `any`).
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+Ответ:
 
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+```json
+[
+  {
+    "id": "1234567890",
+    "display": {
+      "ko": "서울특별시 ...",
+      "en": "Seoul ..."
+    },
+    "search": {
+      "ko": "서울특별시 ...",
+      "en": "seoul ..."
+    },
+    "payload": {}
+  }
+]
+```
