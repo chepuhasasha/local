@@ -24,7 +24,7 @@ npm install
 2. Примените схему и индексы:
 
    ```bash
-   docker-compose exec -T postgres psql -U addresses_user -d addresses -f /app/scripts/init_db.sql
+   docker-compose exec -T postgres psql -U user -d addresses -f /app/scripts/init_db.sql
    ```
 
    Команда использует путь `/app`, поэтому запускать её нужно из корня репозитория.
@@ -42,21 +42,13 @@ npm install
 2. Загрузите чанки в PostgreSQL:
 
    ```bash
-   export DATABASE_URL="postgresql://addresses_user:addresses_password@localhost:5432/addresses"
+   export DATABASE_URL="postgresql://user:password@localhost:5432/addresses"
    node scripts/load_addresses.js ./out 1000
    ```
 
    Второй аргумент — размер пакета вставки (по умолчанию 1000).
 
 ## Запуск приложения
-
-Перед запуском задайте строку подключения:
-
-```bash
-export DATABASE_URL="postgresql://addresses_user:addresses_password@localhost:5432/addresses"
-```
-
-Затем запустите сервис:
 
 ```bash
 npm run start:dev
