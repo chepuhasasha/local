@@ -6,7 +6,11 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['eslint.config.mjs', 'test/.prettier-placeholder.ts'],
+    ignores: [
+      'eslint.config.mjs',
+      'test/.prettier-placeholder.ts',
+      'test/.keep.ts',
+    ],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
@@ -28,8 +32,14 @@ export default tseslint.config(
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-floating-promises': 'warn',
-      '@typescript-eslint/no-unsafe-argument': 'warn',
-      "prettier/prettier": ["error", { endOfLine: "auto" }],
+      // '@typescript-eslint/no-unsafe-argument': 'off',
+      // '@typescript-eslint/no-unsafe-assignment': 'off',
+      // '@typescript-eslint/no-unsafe-call': 'off',
+      // '@typescript-eslint/no-unsafe-member-access': 'off',
+      // '@typescript-eslint/no-unsafe-return': 'off',
+      // '@typescript-eslint/no-base-to-string': 'off',
+      // '@typescript-eslint/require-await': 'off',
+      // 'prettier/prettier': ['error', { endOfLine: 'auto' }],
     },
   },
 );
