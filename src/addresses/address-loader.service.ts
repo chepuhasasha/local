@@ -9,6 +9,8 @@ import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import * as unzipper from 'unzipper';
 
+import type { AddressSearchResult } from './address.types';
+
 type Defaults = Readonly<{
   chunkSize: number;
   downloadLogEveryMs: number;
@@ -41,65 +43,6 @@ const KO_UNDERGROUND_PREFIX = '\uC9C0\uD558';
 
 const FILE_NAME_SUFFIX_ENCODED =
   '%EA%B1%B4%EB%AC%BCDB_%EC%A0%84%EC%B2%B4%EB%B6%84.zip';
-
-type AddressDocument = {
-  id: string;
-  x: number | null;
-  y: number | null;
-  display: { ko: string | null; en: string | null };
-  road: {
-    ko: {
-      region1: string | null;
-      region2: string | null;
-      region3: string | null;
-      roadName: string | null;
-      buildingNo: string | null;
-      isUnderground: boolean;
-      full: string | null;
-    };
-    en: {
-      region1: string | null;
-      region2: string | null;
-      region3: string | null;
-      roadName: string | null;
-      buildingNo: string | null;
-      isUnderground: boolean;
-      full: string | null;
-    };
-    codes: {
-      roadCode: string | null;
-      localAreaSerial: string | null;
-      postalCode: string | null;
-    };
-    building: { nameKo: string | null };
-  };
-  parcel: {
-    ko: {
-      region1: string | null;
-      region2: string | null;
-      region3: string | null;
-      region4: string | null;
-      isMountainLot: boolean;
-      mainNo: string | null;
-      subNo: string | null;
-      parcelNo: string | null;
-      full: string | null;
-    };
-    en: {
-      region1: string | null;
-      region2: string | null;
-      region3: string | null;
-      region4: string | null;
-      isMountainLot: boolean;
-      mainNo: string | null;
-      subNo: string | null;
-      parcelNo: string | null;
-      full: string | null;
-    };
-    codes: { legalAreaCode: string | null };
-  };
-  search: { ko: string | null; en: string | null };
-};
 
 type RoadIndexEntry = {
   key: string;
@@ -134,8 +77,14 @@ export class AddressLoaderService implements OnApplicationBootstrap {
   private static readonly INSERT_COLS_PER_ROW = 44;
   private readonly logger = new Logger(AddressLoaderService.name);
 
+  /**
+   * Создаёт сервис загрузки адресов и подключается к источнику данных.
+   */
   constructor(private readonly dataSource: DataSource) {}
 
+  /**
+   * Запускает загрузчик при старте приложения и следит за наличием данных.
+   */
   async onApplicationBootstrap(): Promise<void> {
     this.logger.log('[bootstrap] start');
 
@@ -156,6 +105,9 @@ export class AddressLoaderService implements OnApplicationBootstrap {
     this.logger.log('[bootstrap] loader finished');
   }
 
+  /**
+   * Гарантирует наличие схемы и индексов для адресов.
+   */
   private async ensureSchema(): Promise<void> {
     await this.dataSource.query('CREATE EXTENSION IF NOT EXISTS pg_trgm');
     await this.dataSource.query(`
@@ -216,12 +168,33 @@ export class AddressLoaderService implements OnApplicationBootstrap {
     `);
   }
 
+  /**
+   * Получает точное количество адресов в таблице.
+   */
   private async getAddressesCountExact(): Promise<bigint> {
     const t0 = Date.now();
 
-    const rows = (await this.dataSource.query(
+    const rawRows: unknown = await this.dataSource.query(
       `SELECT COUNT(*)::bigint AS cnt FROM addresses`,
-    )) as Array<{ cnt: string | number }>;
+    );
+    const rows: Array<{ cnt: string | number | bigint }> = Array.isArray(
+      rawRows,
+    )
+      ? rawRows.map((row) => {
+          if (row && typeof row === 'object' && 'cnt' in row) {
+            const record = row as Record<string, unknown>;
+            const cntValue = record.cnt;
+            if (
+              typeof cntValue === 'string' ||
+              typeof cntValue === 'number' ||
+              typeof cntValue === 'bigint'
+            ) {
+              return { cnt: cntValue };
+            }
+          }
+          return { cnt: '0' };
+        })
+      : [];
 
     const cntRaw = rows[0]?.cnt ?? '0';
 
@@ -238,6 +211,9 @@ export class AddressLoaderService implements OnApplicationBootstrap {
     return cnt;
   }
 
+  /**
+   * Загружает и импортирует адресные данные из архива.
+   */
   private async loadAddresses(): Promise<void> {
     const month = this.getMonthFromEnv();
     const decoder = this.createDecoder();
@@ -301,7 +277,7 @@ export class AddressLoaderService implements OnApplicationBootstrap {
         `[load] road index size=${roadIndex.size} (${Date.now() - tRoad0}ms)`,
       );
 
-      const buffer: AddressDocument[] = [];
+      const buffer: AddressSearchResult[] = [];
       let inserted = 0;
       let processed = 0;
       let lastInsertLogAt = Date.now() - DEFAULTS.insertLogEveryMs;
@@ -389,6 +365,9 @@ export class AddressLoaderService implements OnApplicationBootstrap {
     }
   }
 
+  /**
+   * Логирует прогресс вставки, если прошло достаточно времени.
+   */
   private maybeLogInsertProgress(
     log: (final?: boolean) => void,
     getLastAt: () => number,
@@ -401,6 +380,9 @@ export class AddressLoaderService implements OnApplicationBootstrap {
     }
   }
 
+  /**
+   * Возвращает месяц выгрузки из переменной окружения или текущий месяц.
+   */
   private getMonthFromEnv(): string {
     const raw = process.env.ADDRESS_DATA_MONTH;
     if (raw && /^\d{6}$/.test(raw)) return raw;
@@ -411,6 +393,9 @@ export class AddressLoaderService implements OnApplicationBootstrap {
     return `${y}${m}`;
   }
 
+  /**
+   * Формирует ссылку на архив с адресами для указанного месяца.
+   */
   private buildZipUrl(monthYYYYMM: string): string {
     const year = monthYYYYMM.slice(0, 4);
     const params = new URLSearchParams({
@@ -429,6 +414,9 @@ export class AddressLoaderService implements OnApplicationBootstrap {
     return `https://business.juso.go.kr/api/jst/download?${params.toString()}`;
   }
 
+  /**
+   * Подбирает поддерживаемую кодировку для чтения файлов.
+   */
   private createDecoder(): TextDecoder | null {
     const encodings = ['windows-949', 'cp949', 'euc-kr', 'utf-8'] as const;
     for (const enc of encodings) {
@@ -443,15 +431,24 @@ export class AddressLoaderService implements OnApplicationBootstrap {
     return null;
   }
 
+  /**
+   * Выбирает HTTP-клиент по протоколу URL.
+   */
   private getHttpLib(urlObj: URL): typeof http | typeof https {
     return urlObj.protocol === 'https:' ? https : http;
   }
 
+  /**
+   * Считает процент выполнения, ограничивая диапазон.
+   */
   private pct(done: number, total: number): number {
     if (!total || total <= 0) return 0;
     return Math.max(0, Math.min(100, (done / total) * 100));
   }
 
+  /**
+   * Преобразует размер в человекочитаемый формат.
+   */
   private humanBytes(bytes: number): string {
     if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
     const units = ['B', 'KB', 'MB', 'GB', 'TB'] as const;
@@ -465,6 +462,9 @@ export class AddressLoaderService implements OnApplicationBootstrap {
     return `${normalized} ${units[i]}`;
   }
 
+  /**
+   * Запрашивает размер файла через HEAD с учётом редиректов.
+   */
   private headContentLength(url: string, maxRedirects = 5): Promise<number> {
     return new Promise((resolve) => {
       const urlObj = new URL(url);
@@ -503,6 +503,9 @@ export class AddressLoaderService implements OnApplicationBootstrap {
     });
   }
 
+  /**
+   * Загружает файл с прогрессом и поддержкой редиректов.
+   */
   private async downloadToFileWithProgress(
     url: string,
     destPath: string,
@@ -603,6 +606,9 @@ export class AddressLoaderService implements OnApplicationBootstrap {
     });
   }
 
+  /**
+   * Открывает zip-архив с данными.
+   */
   private async openZip(zipPath: string): Promise<ZipDirectory> {
     const api = unzipper as unknown as {
       Open: { file: (p: string) => Promise<ZipDirectory> };
@@ -610,6 +616,9 @@ export class AddressLoaderService implements OnApplicationBootstrap {
     return api.Open.file(zipPath);
   }
 
+  /**
+   * Находит файл с индексом дорог в архиве.
+   */
   private pickRoadEntry(files: ZipEntry[]): ZipEntry | null {
     const candidates = files.filter((f) => {
       if (f.type !== 'File') return false;
@@ -620,6 +629,9 @@ export class AddressLoaderService implements OnApplicationBootstrap {
     return candidates.length > 0 ? candidates[0] : null;
   }
 
+  /**
+   * Отбирает файлы с данными зданий в архиве.
+   */
   private pickBuildEntries(files: ZipEntry[]): ZipEntry[] {
     return files
       .filter((f) => {
@@ -630,6 +642,9 @@ export class AddressLoaderService implements OnApplicationBootstrap {
       .sort((a, b) => a.path.localeCompare(b.path));
   }
 
+  /**
+   * Итерирует по строкам потока, учитывая разрывы и BOM.
+   */
   private async forEachLineFromReadable(
     readable: NodeJS.ReadableStream,
     decoder: TextDecoder,
@@ -660,6 +675,9 @@ export class AddressLoaderService implements OnApplicationBootstrap {
     }
   }
 
+  /**
+   * Считает количество строк в потоке.
+   */
   private async countLinesFromReadable(
     readable: NodeJS.ReadableStream,
   ): Promise<number> {
@@ -683,6 +701,9 @@ export class AddressLoaderService implements OnApplicationBootstrap {
     return count;
   }
 
+  /**
+   * Считает общее количество строк во всех build-файлах.
+   */
   private async countTotalBuildLines(zipPath: string): Promise<number> {
     const zip = await this.openZip(zipPath);
     const buildEntries = this.pickBuildEntries(zip.files);
@@ -694,6 +715,9 @@ export class AddressLoaderService implements OnApplicationBootstrap {
     return total;
   }
 
+  /**
+   * Нормализует значение ячейки в строку либо null.
+   */
   private norm(value: unknown): string | null {
     if (value === null || value === undefined) return null;
 
@@ -715,6 +739,9 @@ export class AddressLoaderService implements OnApplicationBootstrap {
     return trimmed.length > 0 ? trimmed : null;
   }
 
+  /**
+   * Склеивает части адреса через пробел, удаляя пустые значения.
+   */
   private joinParts(parts: Array<string | null | undefined>): string {
     const normalized = parts
       .map((p) => (p ?? '').trim())
@@ -723,17 +750,26 @@ export class AddressLoaderService implements OnApplicationBootstrap {
     return normalized.join(' ');
   }
 
+  /**
+   * Формирует составной номер с подномером.
+   */
   private makeNumber(main: string | null, sub: string | null): string | null {
     if (!main) return null;
     if (sub && sub !== '0') return `${main}-${sub}`;
     return main;
   }
 
+  /**
+   * Дополняет список колонок пустыми значениями до нужной длины.
+   */
   private padCols(cols: string[], minLen: number): string[] {
     if (cols.length >= minLen) return cols;
     return [...cols, ...Array.from({ length: minLen - cols.length }, () => '')];
   }
 
+  /**
+   * Преобразует строку дорожного справочника в индексную запись.
+   */
   private indexRoadRow(cols: string[]): RoadIndexEntry | null {
     const row = this.padCols(cols, 20);
 
@@ -763,10 +799,13 @@ export class AddressLoaderService implements OnApplicationBootstrap {
     };
   }
 
+  /**
+   * Преобразует строку build-файла в документ адреса.
+   */
   private buildToDoc(
     cols: string[],
     roadIndex: Map<string, RoadIndexEntry['value']>,
-  ): AddressDocument | null {
+  ): AddressSearchResult | null {
     const row = this.padCols(cols, 31);
 
     const id = this.norm(row[15]);
@@ -926,7 +965,7 @@ export class AddressLoaderService implements OnApplicationBootstrap {
           region2: parcelKo.region2,
           region3: parcelKo.region3,
           region4: parcelKo.region4,
-          isMountainLot: isMountainLot,
+          isMountainLot,
           mainNo,
           subNo,
           parcelNo: parcelNoKo,
@@ -937,7 +976,7 @@ export class AddressLoaderService implements OnApplicationBootstrap {
           region2: roadEn.region2,
           region3: roadEn.area,
           region4: null,
-          isMountainLot: isMountainLot,
+          isMountainLot,
           mainNo,
           subNo,
           parcelNo: parcelNoEn,
@@ -949,7 +988,12 @@ export class AddressLoaderService implements OnApplicationBootstrap {
     };
   }
 
-  private async insertDocuments(documents: AddressDocument[]): Promise<void> {
+  /**
+   * Вставляет документы адресов батчами через SQL.
+   */
+  private async insertDocuments(
+    documents: AddressSearchResult[],
+  ): Promise<void> {
     if (documents.length === 0) return;
 
     const colsPerRow = AddressLoaderService.INSERT_COLS_PER_ROW;

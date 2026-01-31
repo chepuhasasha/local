@@ -1,18 +1,15 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, SelectQueryBuilder } from 'typeorm';
-import {
+import type {
   AddressSearchLanguage,
   AddressSearchResult,
-  SearchAddressesRequest,
-} from './dto/search-addresses.dto';
+} from './address.types';
+import { SearchAddressesRequest } from './dto/search-addresses.dto';
 import { AddressEntity } from './entities/address.entity';
 
 @Injectable()
 export class AddressesService {
-  /**
-   * Создаёт сервис с доступом к репозиторию адресов.
-   */
   constructor(
     @InjectRepository(AddressEntity)
     private readonly addressRepository: Repository<AddressEntity>,
