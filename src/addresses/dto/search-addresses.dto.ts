@@ -14,12 +14,16 @@ import type {
 } from '../addresses.types';
 
 export class SearchAddressesRequest {
-  @ApiProperty({ description: 'Строка для поиска адреса.' })
+  @ApiProperty({
+    description: 'Строка для поиска адреса.',
+    default: 'Suyeong-gu Namcheon-dong 52-22',
+  })
   query: string;
 
   @ApiProperty({
     description: 'Максимальное количество результатов.',
     required: false,
+    default: 20,
     minimum: 1,
     maximum: 50,
   })
@@ -28,6 +32,7 @@ export class SearchAddressesRequest {
   @ApiProperty({
     description: 'Смещение для постраничной выдачи.',
     required: false,
+    default: 0,
     minimum: 0,
   })
   offset?: number;
@@ -35,6 +40,7 @@ export class SearchAddressesRequest {
   @ApiProperty({
     description: 'Язык поиска (ko, en или any).',
     required: false,
+    default: 'any',
   })
   lang?: AddressSearchLanguage;
 }
