@@ -1148,8 +1148,8 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
   private buildInsertCols(): readonly ColDef[] {
     const cols: readonly ColDef[] = [
       { name: 'id', pgArray: 'text[]', pick: (d) => d.id },
-      { name: 'x', pgArray: 'float8[]', pick: (d) => (d.x ?? null) as any },
-      { name: 'y', pgArray: 'float8[]', pick: (d) => (d.y ?? null) as any },
+      { name: 'x', pgArray: 'float8[]', pick: (d) => d.x ?? null },
+      { name: 'y', pgArray: 'float8[]', pick: (d) => d.y ?? null },
       {
         name: 'display_ko',
         pgArray: 'text[]',
