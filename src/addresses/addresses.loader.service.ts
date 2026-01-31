@@ -6,7 +6,7 @@ import * as path from 'node:path';
 import { TextDecoder } from 'node:util';
 
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, QueryRunner } from 'typeorm';
 import * as unzipper from 'unzipper';
 
 import type { AddressSearchResult } from './addresses.types';
@@ -15,12 +15,19 @@ type Defaults = Readonly<{
   chunkSize: number;
   downloadLogEveryMs: number;
   insertLogEveryMs: number;
+  commitEveryBatches: number;
+  dropIndexesDuringImport: boolean;
+  countLinesForPercent: boolean;
 }>;
 
+// Практичный дефолт для UNNEST-вставки: можно держать батчи крупнее.
 const DEFAULTS: Defaults = {
-  chunkSize: 1000,
+  chunkSize: 5000,
   downloadLogEveryMs: 1500,
   insertLogEveryMs: 1500,
+  commitEveryBatches: 40, // коммит раз в N батчей, чтобы транзакция не разрасталась бесконечно
+  dropIndexesDuringImport: true,
+  countLinesForPercent: false, // pass1 (подсчёт строк) выключен по умолчанию (ускорение)
 };
 
 type Format = Readonly<{
@@ -72,44 +79,97 @@ type ZipDirectory = {
   files: ZipEntry[];
 };
 
+type ImportState = Readonly<{
+  month: string;
+  status: string | null;
+  finishedAt: Date | null;
+  expectedCount: number | null;
+}>;
+
+type ImportMode = 'upsert' | 'replace';
+
+type ColDef = Readonly<{
+  name: string;
+  pgArray: string; // например 'text[]', 'float8[]', 'boolean[]'
+  pick: (d: AddressSearchResult) => string | number | boolean | null;
+}>;
+
 @Injectable()
 export class AddressesLoaderService implements OnApplicationBootstrap {
   private static readonly INSERT_COLS_PER_ROW = 44;
+
   private readonly logger = new Logger(AddressesLoaderService.name);
 
-  /**
-   * Создаёт сервис загрузки адресов и подключается к источнику данных.
-   */
   constructor(private readonly dataSource: DataSource) {}
 
-  /**
-   * Запускает загрузчик при старте приложения и следит за наличием данных.
-   */
   async onApplicationBootstrap(): Promise<void> {
     this.logger.log('[bootstrap] start');
 
-    await this.ensureSchema();
+    await this.ensureSchema(); // таблицы + extension
+    await this.ensureIndexes(); // индексы (на случай, если были удалены)
 
-    // Exact count (can take time on big tables) — log start/end to avoid “silent pause”.
-    this.logger.log('[bootstrap] checking existing data (exact COUNT(*))...');
-    const existing = await this.getAddressesCountExact();
-    this.logger.log(`[bootstrap] addresses_count=${existing.toString()}`);
+    const month = this.getMonthFromEnv();
+    const state = await this.getImportState(month);
 
-    if (existing > 0n) {
-      this.logger.log('[bootstrap] data exists -> loader skipped');
+    if (state?.status === 'completed') {
+      this.logger.log(
+        `[bootstrap] import completed for ${month} -> loader skipped`,
+      );
       return;
     }
 
-    this.logger.log('[bootstrap] no data -> starting loader');
-    await this.loadAddresses();
+    this.logger.log('[bootstrap] no completed import -> starting loader');
+    await this.loadAddresses(month);
     this.logger.log('[bootstrap] loader finished');
   }
 
-  /**
-   * Гарантирует наличие схемы и индексов для адресов.
-   */
+  private getImportModeFromEnv(): ImportMode {
+    const raw = (process.env.ADDRESS_IMPORT_MODE ?? '').trim().toLowerCase();
+    return raw === 'replace' ? 'replace' : 'upsert';
+  }
+
+  private getDefaultsFromEnv(): Defaults {
+    const asInt = (v: string | undefined, fallback: number) => {
+      const n = v ? Number(v) : NaN;
+      return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+    };
+
+    const asBool = (v: string | undefined, fallback: boolean) => {
+      if (!v) return fallback;
+      const s = v.trim().toLowerCase();
+      if (s === '1' || s === 'true' || s === 'yes') return true;
+      if (s === '0' || s === 'false' || s === 'no') return false;
+      return fallback;
+    };
+
+    return {
+      chunkSize: asInt(process.env.ADDRESS_CHUNK_SIZE, DEFAULTS.chunkSize),
+      downloadLogEveryMs: asInt(
+        process.env.ADDRESS_DOWNLOAD_LOG_MS,
+        DEFAULTS.downloadLogEveryMs,
+      ),
+      insertLogEveryMs: asInt(
+        process.env.ADDRESS_INSERT_LOG_MS,
+        DEFAULTS.insertLogEveryMs,
+      ),
+      commitEveryBatches: asInt(
+        process.env.ADDRESS_COMMIT_EVERY_BATCHES,
+        DEFAULTS.commitEveryBatches,
+      ),
+      dropIndexesDuringImport: asBool(
+        process.env.ADDRESS_DROP_INDEXES,
+        DEFAULTS.dropIndexesDuringImport,
+      ),
+      countLinesForPercent: asBool(
+        process.env.ADDRESS_COUNT_LINES_FOR_PERCENT,
+        DEFAULTS.countLinesForPercent,
+      ),
+    };
+  }
+
   private async ensureSchema(): Promise<void> {
     await this.dataSource.query('CREATE EXTENSION IF NOT EXISTS pg_trgm');
+
     await this.dataSource.query(`
       CREATE TABLE IF NOT EXISTS addresses (
         id text PRIMARY KEY,
@@ -158,25 +218,125 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
         parcel_legal_area_code text
       )
     `);
+
+    await this.dataSource.query(`
+      CREATE TABLE IF NOT EXISTS address_import_state (
+        month text PRIMARY KEY,
+        status text,
+        finished_at timestamptz,
+        expected_count integer
+      )
+    `);
+  }
+
+  private async ensureIndexes(): Promise<void> {
     await this.dataSource.query(`
       CREATE INDEX IF NOT EXISTS addresses_search_ko_idx
       ON addresses USING gin (search_ko gin_trgm_ops)
     `);
+
     await this.dataSource.query(`
       CREATE INDEX IF NOT EXISTS addresses_search_en_idx
       ON addresses USING gin (search_en gin_trgm_ops)
     `);
   }
 
-  /**
-   * Получает точное количество адресов в таблице.
-   */
+  private async dropIndexes(): Promise<void> {
+    await this.dataSource.query(`DROP INDEX IF EXISTS addresses_search_ko_idx`);
+    await this.dataSource.query(`DROP INDEX IF EXISTS addresses_search_en_idx`);
+  }
+
+  private async getImportState(month: string): Promise<ImportState | null> {
+    const rawRows: unknown = await this.dataSource.query(
+      `
+        SELECT month, status, finished_at, expected_count
+        FROM address_import_state
+        WHERE month = $1
+        LIMIT 1
+      `,
+      [month],
+    );
+
+    const rows = Array.isArray(rawRows)
+      ? rawRows.flatMap(
+          (
+            row,
+          ): Array<{
+            month: string;
+            status: string | null;
+            finished_at: string | Date | null;
+            expected_count: number | null;
+          }> => {
+            if (!row || typeof row !== 'object') return [];
+            const record = row as Record<string, unknown>;
+            const monthValue = record.month;
+            if (typeof monthValue !== 'string') return [];
+
+            const statusValue =
+              typeof record.status === 'string' ? record.status : null;
+
+            const finishedValue =
+              typeof record.finished_at === 'string' ||
+              record.finished_at instanceof Date
+                ? record.finished_at
+                : null;
+
+            const expectedValue =
+              typeof record.expected_count === 'number'
+                ? record.expected_count
+                : null;
+
+            return [
+              {
+                month: monthValue,
+                status: statusValue,
+                finished_at: finishedValue,
+                expected_count: expectedValue,
+              },
+            ];
+          },
+        )
+      : [];
+
+    const row = rows[0];
+    if (!row) return null;
+
+    return {
+      month: row.month,
+      status: row.status ?? null,
+      finishedAt: row.finished_at ? new Date(row.finished_at) : null,
+      expectedCount:
+        typeof row.expected_count === 'number' ? row.expected_count : null,
+    };
+  }
+
+  private async setImportState(params: {
+    month: string;
+    status: string;
+    finishedAt: Date | null;
+    expectedCount: number | null;
+  }): Promise<void> {
+    await this.dataSource.query(
+      `
+        INSERT INTO address_import_state (month, status, finished_at, expected_count)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (month)
+        DO UPDATE SET
+          status = EXCLUDED.status,
+          finished_at = EXCLUDED.finished_at,
+          expected_count = EXCLUDED.expected_count
+      `,
+      [params.month, params.status, params.finishedAt, params.expectedCount],
+    );
+  }
+
   private async getAddressesCountExact(): Promise<bigint> {
     const t0 = Date.now();
 
     const rawRows: unknown = await this.dataSource.query(
       `SELECT COUNT(*)::bigint AS cnt FROM addresses`,
     );
+
     const rows: Array<{ cnt: string | number | bigint }> = Array.isArray(
       rawRows,
     )
@@ -211,36 +371,68 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     return cnt;
   }
 
-  /**
-   * Загружает и импортирует адресные данные из архива.
-   */
-  private async loadAddresses(): Promise<void> {
-    const month = this.getMonthFromEnv();
+  private async loadAddresses(month: string): Promise<void> {
     const decoder = this.createDecoder();
     if (!decoder) throw new Error('Decoder not available.');
 
+    const defaults = this.getDefaultsFromEnv();
+    const importMode = this.getImportModeFromEnv();
     const url = this.buildZipUrl(month);
 
-    // Put temp zip outside project folder to avoid watch-triggered restarts
     const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'addr-'));
     const zipPath = path.join(tmpDir, `${month}.zip`);
 
     this.logger.log(`[load] month=${month}`);
     this.logger.log(`[load] temp_dir=${tmpDir}`);
+    this.logger.log(
+      `[load] mode=${importMode} chunk_size=${defaults.chunkSize} commit_every_batches=${defaults.commitEveryBatches}`,
+    );
+
+    let expectedCount: number | null = null;
+
+    await this.setImportState({
+      month,
+      status: 'in_progress',
+      finishedAt: null,
+      expectedCount: null,
+    });
+
+    let qr: QueryRunner | null = null;
 
     try {
       await this.downloadToFileWithProgress(
         url,
         zipPath,
-        DEFAULTS.downloadLogEveryMs,
+        defaults.downloadLogEveryMs,
       );
 
-      this.logger.log('[load] counting total lines in build_*.txt (pass 1)...');
-      const tCount0 = Date.now();
-      const totalLines = await this.countTotalBuildLines(zipPath);
-      this.logger.log(
-        `[load] total_lines=${totalLines} (pass 1 in ${Date.now() - tCount0}ms)`,
-      );
+      if (defaults.dropIndexesDuringImport) {
+        this.logger.log(
+          '[load] dropping search indexes (import optimization)...',
+        );
+        await this.dropIndexes();
+      }
+
+      // pass1 (необязательно): подсчёт строк для процента
+      if (defaults.countLinesForPercent) {
+        this.logger.log(
+          '[load] counting total lines in build_*.txt (pass 1)...',
+        );
+        const tCount0 = Date.now();
+        const totalLines = await this.countTotalBuildLines(zipPath);
+        expectedCount = totalLines;
+
+        await this.setImportState({
+          month,
+          status: 'in_progress',
+          finishedAt: null,
+          expectedCount,
+        });
+
+        this.logger.log(
+          `[load] total_lines=${totalLines} (pass 1 in ${Date.now() - tCount0}ms)`,
+        );
+      }
 
       this.logger.log('[load] opening zip (pass 2)...');
       const zip = await this.openZip(zipPath);
@@ -256,11 +448,12 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
         `[load] files: road=1 build=${buildEntries.length} (pass 2)`,
       );
 
+      // Build road index (синхронный callback, без await на строку)
       const roadIndex = new Map<string, RoadIndexEntry['value']>();
 
       this.logger.log('[load] building road index...');
       const tRoad0 = Date.now();
-      await this.forEachLineFromReadable(
+      await this.forEachLineFromReadableSync(
         roadEntry.stream(),
         decoder,
         (line) => {
@@ -277,112 +470,135 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
         `[load] road index size=${roadIndex.size} (${Date.now() - tRoad0}ms)`,
       );
 
-      const buffer: AddressSearchResult[] = [];
-      let inserted = 0;
-      let processed = 0;
-      let lastInsertLogAt = Date.now() - DEFAULTS.insertLogEveryMs;
+      // QueryRunner: одна сессия, ускоренные настройки
+      qr = this.dataSource.createQueryRunner();
+      await qr.connect();
 
-      const logProgress = (final = false): void => {
+      // Не ставим statement_timeout на импорт
+      await qr.query(`SET statement_timeout = 0`);
+
+      // Ускорение коммитов (по ситуации; если важнее надёжность, выключи через env и убери строку)
+      await qr.query(`SET synchronous_commit = off`);
+
+      // replace mode: быстрее всего (truncate + insert without conflict)
+      if (importMode === 'replace') {
+        this.logger.log('[load] replace mode -> TRUNCATE addresses...');
+        await qr.query(`TRUNCATE TABLE addresses`);
+      }
+
+      await qr.startTransaction();
+
+      let processed = 0;
+      let inserted = 0;
+      let batchCountSinceCommit = 0;
+
+      let lastLogAt = Date.now() - defaults.insertLogEveryMs;
+      const tStart = Date.now();
+
+      const logProgress = (final = false) => {
+        const now = Date.now();
+        const elapsedSec = Math.max(0.001, (now - tStart) / 1000);
+        const speed = (processed / elapsedSec).toFixed(0);
+
+        const total = expectedCount ?? null;
         const pct =
-          totalLines > 0 ? ((processed / totalLines) * 100).toFixed(2) : '0.00';
+          total && total > 0 ? ((processed / total) * 100).toFixed(2) : null;
+
         this.logger.log(
-          `[load] processed=${processed}/${totalLines} (${pct}%) inserted=${inserted}${
-            final ? ' done' : ''
-          }`,
+          `[load] processed=${processed}` +
+            (total ? `/${total} (${pct}%)` : '') +
+            ` inserted=${inserted} speed=${speed}/s` +
+            (final ? ' done' : ''),
         );
       };
 
+      const maybeLog = () => {
+        const now = Date.now();
+        if (now - lastLogAt >= defaults.insertLogEveryMs) {
+          lastLogAt = now;
+          logProgress(false);
+        }
+      };
+
+      // Основной цикл по build_*.txt: await только на flush (батч) и коммиты
       for (const entry of buildEntries) {
         this.logger.log(`[load] processing ${entry.path}...`);
 
-        await this.forEachLineFromReadable(
-          entry.stream(),
+        const res = await this.processBuildFileBatched({
+          entry,
           decoder,
-          async (line) => {
-            processed += 1;
+          roadIndex,
+          chunkSize: defaults.chunkSize,
+          onBatch: async (batch) => {
+            await this.insertDocuments(batch, qr!, importMode);
+            inserted += batch.length;
 
-            const cols = line.split('|');
-            if (cols.length < 16) {
-              this.maybeLogInsertProgress(
-                logProgress,
-                () => lastInsertLogAt,
-                (v) => {
-                  lastInsertLogAt = v;
-                },
-              );
-              return;
-            }
-
-            const doc = this.buildToDoc(cols, roadIndex);
-            if (!doc) {
-              this.maybeLogInsertProgress(
-                logProgress,
-                () => lastInsertLogAt,
-                (v) => {
-                  lastInsertLogAt = v;
-                },
-              );
-              return;
-            }
-
-            buffer.push(doc);
-
-            if (buffer.length >= DEFAULTS.chunkSize) {
-              const batch = buffer.splice(0, buffer.length);
-              await this.insertDocuments(batch);
-              inserted += batch.length;
-
-              logProgress(false);
-              lastInsertLogAt = Date.now();
-            } else {
-              this.maybeLogInsertProgress(
-                logProgress,
-                () => lastInsertLogAt,
-                (v) => {
-                  lastInsertLogAt = v;
-                },
-              );
+            batchCountSinceCommit += 1;
+            if (batchCountSinceCommit >= defaults.commitEveryBatches) {
+              await qr!.commitTransaction();
+              await qr!.startTransaction();
+              batchCountSinceCommit = 0;
             }
           },
-        );
+          onLineProcessed: () => {
+            processed += 1;
+            maybeLog();
+          },
+        });
+
+        // res.processedLines уже учтены через onLineProcessed, res возвращаем для диагностики (если надо)
+        void res;
       }
 
-      if (buffer.length > 0) {
-        const batch = buffer.splice(0, buffer.length);
-        await this.insertDocuments(batch);
-        inserted += batch.length;
-      }
+      await qr.commitTransaction();
 
       logProgress(true);
 
-      // Optional: log exact count after load
       this.logger.log('[load] verifying exact count after load...');
       const after = await this.getAddressesCountExact();
       this.logger.log(`[load] addresses_count_after=${after.toString()}`);
+
+      await this.setImportState({
+        month,
+        status: 'completed',
+        finishedAt: new Date(),
+        expectedCount,
+      });
+
+      // Возвращаем индексы
+      this.logger.log('[load] ensuring search indexes...');
+      await this.ensureIndexes();
+    } catch (error) {
+      try {
+        if (qr) {
+          try {
+            await qr.rollbackTransaction();
+          } catch {
+            // ignore
+          }
+        }
+      } finally {
+        await this.setImportState({
+          month,
+          status: 'failed',
+          finishedAt: new Date(),
+          expectedCount,
+        });
+      }
+      throw error;
     } finally {
+      if (qr) {
+        try {
+          await qr.release();
+        } catch {
+          // ignore
+        }
+      }
       await fs.promises.rm(tmpDir, { recursive: true, force: true });
       this.logger.log('[load] temp files removed');
     }
   }
 
-  /**
-   * Логирует прогресс вставки, если прошло достаточно времени.
-   */
-  private maybeLogInsertProgress(
-    log: (final?: boolean) => void,
-    getLastAt: () => number,
-    setLastAt: (v: number) => void,
-  ): void {
-    const now = Date.now();
-    if (now - getLastAt() >= DEFAULTS.insertLogEveryMs) {
-      setLastAt(now);
-      log(false);
-    }
-  }
-
-  /**
-   * Возвращает месяц выгрузки из переменной окружения или текущий месяц.
-   */
   private getMonthFromEnv(): string {
     const raw = process.env.ADDRESS_DATA_MONTH;
     if (raw && /^\d{6}$/.test(raw)) return raw;
@@ -393,9 +609,6 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     return `${y}${m}`;
   }
 
-  /**
-   * Формирует ссылку на архив с адресами для указанного месяца.
-   */
   private buildZipUrl(monthYYYYMM: string): string {
     const year = monthYYYYMM.slice(0, 4);
     const params = new URLSearchParams({
@@ -414,9 +627,6 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     return `https://business.juso.go.kr/api/jst/download?${params.toString()}`;
   }
 
-  /**
-   * Подбирает поддерживаемую кодировку для чтения файлов.
-   */
   private createDecoder(): TextDecoder | null {
     const encodings = ['windows-949', 'cp949', 'euc-kr', 'utf-8'] as const;
     for (const enc of encodings) {
@@ -431,24 +641,15 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     return null;
   }
 
-  /**
-   * Выбирает HTTP-клиент по протоколу URL.
-   */
   private getHttpLib(urlObj: URL): typeof http | typeof https {
     return urlObj.protocol === 'https:' ? https : http;
   }
 
-  /**
-   * Считает процент выполнения, ограничивая диапазон.
-   */
   private pct(done: number, total: number): number {
     if (!total || total <= 0) return 0;
     return Math.max(0, Math.min(100, (done / total) * 100));
   }
 
-  /**
-   * Преобразует размер в человекочитаемый формат.
-   */
   private humanBytes(bytes: number): string {
     if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
     const units = ['B', 'KB', 'MB', 'GB', 'TB'] as const;
@@ -462,9 +663,6 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     return `${normalized} ${units[i]}`;
   }
 
-  /**
-   * Запрашивает размер файла через HEAD с учётом редиректов.
-   */
   private headContentLength(url: string, maxRedirects = 5): Promise<number> {
     return new Promise((resolve) => {
       const urlObj = new URL(url);
@@ -503,9 +701,6 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     });
   }
 
-  /**
-   * Загружает файл с прогрессом и поддержкой редиректов.
-   */
   private async downloadToFileWithProgress(
     url: string,
     destPath: string,
@@ -606,9 +801,6 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     });
   }
 
-  /**
-   * Открывает zip-архив с данными.
-   */
   private async openZip(zipPath: string): Promise<ZipDirectory> {
     const api = unzipper as unknown as {
       Open: { file: (p: string) => Promise<ZipDirectory> };
@@ -616,9 +808,6 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     return api.Open.file(zipPath);
   }
 
-  /**
-   * Находит файл с индексом дорог в архиве.
-   */
   private pickRoadEntry(files: ZipEntry[]): ZipEntry | null {
     const candidates = files.filter((f) => {
       if (f.type !== 'File') return false;
@@ -629,9 +818,6 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     return candidates.length > 0 ? candidates[0] : null;
   }
 
-  /**
-   * Отбирает файлы с данными зданий в архиве.
-   */
   private pickBuildEntries(files: ZipEntry[]): ZipEntry[] {
     return files
       .filter((f) => {
@@ -642,13 +828,11 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
       .sort((a, b) => a.path.localeCompare(b.path));
   }
 
-  /**
-   * Итерирует по строкам потока, учитывая разрывы и BOM.
-   */
-  private async forEachLineFromReadable(
+  // Быстрый проход: callback синхронный, нет await на каждую строку
+  private async forEachLineFromReadableSync(
     readable: NodeJS.ReadableStream,
     decoder: TextDecoder,
-    onLine: (line: string) => void | Promise<void>,
+    onLine: (line: string) => void,
   ): Promise<void> {
     const stream = readable as NodeJS.ReadableStream & AsyncIterable<Buffer>;
     let remainder = '';
@@ -663,21 +847,15 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
         line = line.replace(/\r$/, '');
         if (line.length === 0) continue;
         if (line.charCodeAt(0) === 0xfeff) line = line.slice(1);
-
-        await Promise.resolve(onLine(line));
+        onLine(line);
       }
     }
 
     const tail = decoder.decode(new Uint8Array(), { stream: false });
     const last = (remainder + tail).replace(/\r$/, '');
-    if (last.length > 0) {
-      await Promise.resolve(onLine(last));
-    }
+    if (last.length > 0) onLine(last);
   }
 
-  /**
-   * Считает количество строк в потоке.
-   */
   private async countLinesFromReadable(
     readable: NodeJS.ReadableStream,
   ): Promise<number> {
@@ -701,9 +879,6 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     return count;
   }
 
-  /**
-   * Считает общее количество строк во всех build-файлах.
-   */
   private async countTotalBuildLines(zipPath: string): Promise<number> {
     const zip = await this.openZip(zipPath);
     const buildEntries = this.pickBuildEntries(zip.files);
@@ -715,9 +890,6 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     return total;
   }
 
-  /**
-   * Нормализует значение ячейки в строку либо null.
-   */
   private norm(value: unknown): string | null {
     if (value === null || value === undefined) return null;
 
@@ -739,9 +911,6 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     return trimmed.length > 0 ? trimmed : null;
   }
 
-  /**
-   * Склеивает части адреса через пробел, удаляя пустые значения.
-   */
   private joinParts(parts: Array<string | null | undefined>): string {
     const normalized = parts
       .map((p) => (p ?? '').trim())
@@ -750,26 +919,17 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     return normalized.join(' ');
   }
 
-  /**
-   * Формирует составной номер с подномером.
-   */
   private makeNumber(main: string | null, sub: string | null): string | null {
     if (!main) return null;
     if (sub && sub !== '0') return `${main}-${sub}`;
     return main;
   }
 
-  /**
-   * Дополняет список колонок пустыми значениями до нужной длины.
-   */
   private padCols(cols: string[], minLen: number): string[] {
     if (cols.length >= minLen) return cols;
     return [...cols, ...Array.from({ length: minLen - cols.length }, () => '')];
   }
 
-  /**
-   * Преобразует строку дорожного справочника в индексную запись.
-   */
   private indexRoadRow(cols: string[]): RoadIndexEntry | null {
     const row = this.padCols(cols, 20);
 
@@ -799,9 +959,6 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     };
   }
 
-  /**
-   * Преобразует строку build-файла в документ адреса.
-   */
   private buildToDoc(
     cols: string[],
     roadIndex: Map<string, RoadIndexEntry['value']>,
@@ -988,169 +1145,348 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     };
   }
 
-  /**
-   * Вставляет документы адресов батчами через SQL.
-   */
+  private buildInsertCols(): readonly ColDef[] {
+    const cols: readonly ColDef[] = [
+      { name: 'id', pgArray: 'text[]', pick: (d) => d.id },
+      { name: 'x', pgArray: 'float8[]', pick: (d) => (d.x ?? null) as any },
+      { name: 'y', pgArray: 'float8[]', pick: (d) => (d.y ?? null) as any },
+      {
+        name: 'display_ko',
+        pgArray: 'text[]',
+        pick: (d) => d.display.ko ?? null,
+      },
+      {
+        name: 'display_en',
+        pgArray: 'text[]',
+        pick: (d) => d.display.en ?? null,
+      },
+      {
+        name: 'search_ko',
+        pgArray: 'text[]',
+        pick: (d) => d.search.ko ?? null,
+      },
+      {
+        name: 'search_en',
+        pgArray: 'text[]',
+        pick: (d) => d.search.en ?? null,
+      },
+
+      {
+        name: 'road_ko_region1',
+        pgArray: 'text[]',
+        pick: (d) => d.road.ko.region1 ?? null,
+      },
+      {
+        name: 'road_ko_region2',
+        pgArray: 'text[]',
+        pick: (d) => d.road.ko.region2 ?? null,
+      },
+      {
+        name: 'road_ko_region3',
+        pgArray: 'text[]',
+        pick: (d) => d.road.ko.region3 ?? null,
+      },
+      {
+        name: 'road_ko_road_name',
+        pgArray: 'text[]',
+        pick: (d) => d.road.ko.roadName ?? null,
+      },
+      {
+        name: 'road_ko_building_no',
+        pgArray: 'text[]',
+        pick: (d) => d.road.ko.buildingNo ?? null,
+      },
+      {
+        name: 'road_ko_is_underground',
+        pgArray: 'boolean[]',
+        pick: (d) => d.road.ko.isUnderground ?? null,
+      },
+      {
+        name: 'road_ko_full',
+        pgArray: 'text[]',
+        pick: (d) => d.road.ko.full ?? null,
+      },
+
+      {
+        name: 'road_en_region1',
+        pgArray: 'text[]',
+        pick: (d) => d.road.en.region1 ?? null,
+      },
+      {
+        name: 'road_en_region2',
+        pgArray: 'text[]',
+        pick: (d) => d.road.en.region2 ?? null,
+      },
+      {
+        name: 'road_en_region3',
+        pgArray: 'text[]',
+        pick: (d) => d.road.en.region3 ?? null,
+      },
+      {
+        name: 'road_en_road_name',
+        pgArray: 'text[]',
+        pick: (d) => d.road.en.roadName ?? null,
+      },
+      {
+        name: 'road_en_building_no',
+        pgArray: 'text[]',
+        pick: (d) => d.road.en.buildingNo ?? null,
+      },
+      {
+        name: 'road_en_is_underground',
+        pgArray: 'boolean[]',
+        pick: (d) => d.road.en.isUnderground ?? null,
+      },
+      {
+        name: 'road_en_full',
+        pgArray: 'text[]',
+        pick: (d) => d.road.en.full ?? null,
+      },
+
+      {
+        name: 'road_code',
+        pgArray: 'text[]',
+        pick: (d) => d.road.codes.roadCode ?? null,
+      },
+      {
+        name: 'road_local_area_serial',
+        pgArray: 'text[]',
+        pick: (d) => d.road.codes.localAreaSerial ?? null,
+      },
+      {
+        name: 'road_postal_code',
+        pgArray: 'text[]',
+        pick: (d) => d.road.codes.postalCode ?? null,
+      },
+      {
+        name: 'road_building_name_ko',
+        pgArray: 'text[]',
+        pick: (d) => d.road.building.nameKo ?? null,
+      },
+
+      {
+        name: 'parcel_ko_region1',
+        pgArray: 'text[]',
+        pick: (d) => d.parcel.ko.region1 ?? null,
+      },
+      {
+        name: 'parcel_ko_region2',
+        pgArray: 'text[]',
+        pick: (d) => d.parcel.ko.region2 ?? null,
+      },
+      {
+        name: 'parcel_ko_region3',
+        pgArray: 'text[]',
+        pick: (d) => d.parcel.ko.region3 ?? null,
+      },
+      {
+        name: 'parcel_ko_region4',
+        pgArray: 'text[]',
+        pick: (d) => d.parcel.ko.region4 ?? null,
+      },
+      {
+        name: 'parcel_ko_is_mountain_lot',
+        pgArray: 'boolean[]',
+        pick: (d) => d.parcel.ko.isMountainLot ?? null,
+      },
+      {
+        name: 'parcel_ko_main_no',
+        pgArray: 'text[]',
+        pick: (d) => d.parcel.ko.mainNo ?? null,
+      },
+      {
+        name: 'parcel_ko_sub_no',
+        pgArray: 'text[]',
+        pick: (d) => d.parcel.ko.subNo ?? null,
+      },
+      {
+        name: 'parcel_ko_parcel_no',
+        pgArray: 'text[]',
+        pick: (d) => d.parcel.ko.parcelNo ?? null,
+      },
+      {
+        name: 'parcel_ko_full',
+        pgArray: 'text[]',
+        pick: (d) => d.parcel.ko.full ?? null,
+      },
+
+      {
+        name: 'parcel_en_region1',
+        pgArray: 'text[]',
+        pick: (d) => d.parcel.en.region1 ?? null,
+      },
+      {
+        name: 'parcel_en_region2',
+        pgArray: 'text[]',
+        pick: (d) => d.parcel.en.region2 ?? null,
+      },
+      {
+        name: 'parcel_en_region3',
+        pgArray: 'text[]',
+        pick: (d) => d.parcel.en.region3 ?? null,
+      },
+      {
+        name: 'parcel_en_region4',
+        pgArray: 'text[]',
+        pick: (d) => d.parcel.en.region4 ?? null,
+      },
+      {
+        name: 'parcel_en_is_mountain_lot',
+        pgArray: 'boolean[]',
+        pick: (d) => d.parcel.en.isMountainLot ?? null,
+      },
+      {
+        name: 'parcel_en_main_no',
+        pgArray: 'text[]',
+        pick: (d) => d.parcel.en.mainNo ?? null,
+      },
+      {
+        name: 'parcel_en_sub_no',
+        pgArray: 'text[]',
+        pick: (d) => d.parcel.en.subNo ?? null,
+      },
+      {
+        name: 'parcel_en_parcel_no',
+        pgArray: 'text[]',
+        pick: (d) => d.parcel.en.parcelNo ?? null,
+      },
+      {
+        name: 'parcel_en_full',
+        pgArray: 'text[]',
+        pick: (d) => d.parcel.en.full ?? null,
+      },
+
+      {
+        name: 'parcel_legal_area_code',
+        pgArray: 'text[]',
+        pick: (d) => d.parcel.codes.legalAreaCode ?? null,
+      },
+    ] as const;
+
+    if (cols.length !== AddressesLoaderService.INSERT_COLS_PER_ROW) {
+      throw new Error(
+        `Insert columns mismatch: got ${cols.length}, expected ${AddressesLoaderService.INSERT_COLS_PER_ROW}`,
+      );
+    }
+
+    return cols;
+  }
+
+  private buildUnnestSql(cols: readonly ColDef[], mode: ImportMode): string {
+    const colNames = cols.map((c) => c.name).join(', ');
+    const unnestArgs = cols.map((c, i) => `$${i + 1}::${c.pgArray}`).join(', ');
+
+    if (mode === 'replace') {
+      // В replace режиме table уже TRUNCATE, конфликтов быть не должно.
+      return `
+        INSERT INTO addresses (${colNames})
+        SELECT * FROM UNNEST(${unnestArgs})
+      `;
+    }
+
+    const updates = cols
+      .filter((c) => c.name !== 'id')
+      .map((c) => `${c.name} = EXCLUDED.${c.name}`)
+      .join(', ');
+
+    return `
+      INSERT INTO addresses (${colNames})
+      SELECT * FROM UNNEST(${unnestArgs})
+      ON CONFLICT (id) DO UPDATE SET ${updates}
+    `;
+  }
+
+  // Батчевый разбор build файла: нет await на каждую строку.
+  private async processBuildFileBatched(params: {
+    entry: ZipEntry;
+    decoder: TextDecoder;
+    roadIndex: Map<string, RoadIndexEntry['value']>;
+    chunkSize: number;
+    onBatch: (batch: AddressSearchResult[]) => Promise<void>;
+    onLineProcessed: () => void;
+  }): Promise<{ processedLines: number }> {
+    const stream = params.entry.stream() as NodeJS.ReadableStream &
+      AsyncIterable<Buffer>;
+
+    let remainder = '';
+    let processedLines = 0;
+
+    let buffer: AddressSearchResult[] = [];
+
+    const flush = async () => {
+      if (buffer.length === 0) return;
+      const batch = buffer;
+      buffer = [];
+      await params.onBatch(batch);
+    };
+
+    for await (const chunk of stream) {
+      const text = params.decoder.decode(chunk, { stream: true });
+      const data = remainder + text;
+      const parts = data.split('\n');
+      remainder = parts.pop() ?? '';
+
+      for (let line of parts) {
+        line = line.replace(/\r$/, '');
+        if (!line) continue;
+        if (line.charCodeAt(0) === 0xfeff) line = line.slice(1);
+
+        processedLines += 1;
+        params.onLineProcessed();
+
+        const cols = line.split('|');
+        if (cols.length < 16) continue;
+
+        const doc = this.buildToDoc(cols, params.roadIndex);
+        if (!doc) continue;
+
+        buffer.push(doc);
+
+        if (buffer.length >= params.chunkSize) {
+          await flush();
+        }
+      }
+    }
+
+    const tail = params.decoder.decode(new Uint8Array(), { stream: false });
+    const last = (remainder + tail).replace(/\r$/, '');
+    if (last) {
+      processedLines += 1;
+      params.onLineProcessed();
+
+      const cols = last.split('|');
+      if (cols.length >= 16) {
+        const doc = this.buildToDoc(cols, params.roadIndex);
+        if (doc) buffer.push(doc);
+      }
+    }
+
+    await flush();
+
+    return { processedLines };
+  }
+
+  // Вставка батча через UNNEST (фиксированное число параметров: 44 массива)
   private async insertDocuments(
     documents: AddressSearchResult[],
+    qr: QueryRunner,
+    mode: ImportMode,
   ): Promise<void> {
     if (documents.length === 0) return;
 
-    const colsPerRow = AddressesLoaderService.INSERT_COLS_PER_ROW;
+    const cols = this.buildInsertCols();
+    const sql = this.buildUnnestSql(cols, mode);
 
-    const values: Array<string | number | boolean | null> = [];
-    const placeholders: string[] = [];
+    const arrays = cols.map(
+      () => [] as Array<string | number | boolean | null>,
+    );
 
-    documents.forEach((doc, index) => {
-      values.push(
-        doc.id,
-        doc.x ?? null,
-        doc.y ?? null,
-        doc.display.ko ?? null,
-        doc.display.en ?? null,
-        doc.search.ko ?? null,
-        doc.search.en ?? null,
-        doc.road.ko.region1 ?? null,
-        doc.road.ko.region2 ?? null,
-        doc.road.ko.region3 ?? null,
-        doc.road.ko.roadName ?? null,
-        doc.road.ko.buildingNo ?? null,
-        doc.road.ko.isUnderground ?? null,
-        doc.road.ko.full ?? null,
-        doc.road.en.region1 ?? null,
-        doc.road.en.region2 ?? null,
-        doc.road.en.region3 ?? null,
-        doc.road.en.roadName ?? null,
-        doc.road.en.buildingNo ?? null,
-        doc.road.en.isUnderground ?? null,
-        doc.road.en.full ?? null,
-        doc.road.codes.roadCode ?? null,
-        doc.road.codes.localAreaSerial ?? null,
-        doc.road.codes.postalCode ?? null,
-        doc.road.building.nameKo ?? null,
-        doc.parcel.ko.region1 ?? null,
-        doc.parcel.ko.region2 ?? null,
-        doc.parcel.ko.region3 ?? null,
-        doc.parcel.ko.region4 ?? null,
-        doc.parcel.ko.isMountainLot ?? null,
-        doc.parcel.ko.mainNo ?? null,
-        doc.parcel.ko.subNo ?? null,
-        doc.parcel.ko.parcelNo ?? null,
-        doc.parcel.ko.full ?? null,
-        doc.parcel.en.region1 ?? null,
-        doc.parcel.en.region2 ?? null,
-        doc.parcel.en.region3 ?? null,
-        doc.parcel.en.region4 ?? null,
-        doc.parcel.en.isMountainLot ?? null,
-        doc.parcel.en.mainNo ?? null,
-        doc.parcel.en.subNo ?? null,
-        doc.parcel.en.parcelNo ?? null,
-        doc.parcel.en.full ?? null,
-        doc.parcel.codes.legalAreaCode ?? null,
-      );
+    for (const doc of documents) {
+      for (let i = 0; i < cols.length; i++) {
+        arrays[i].push(cols[i].pick(doc));
+      }
+    }
 
-      const base = index * colsPerRow;
-      const marks = Array.from(
-        { length: colsPerRow },
-        (_, i) => `$${base + i + 1}`,
-      ).join(', ');
-      placeholders.push(`(${marks})`);
-    });
-
-    const sql = `
-      INSERT INTO addresses (
-        id,
-        x,
-        y,
-        display_ko,
-        display_en,
-        search_ko,
-        search_en,
-        road_ko_region1,
-        road_ko_region2,
-        road_ko_region3,
-        road_ko_road_name,
-        road_ko_building_no,
-        road_ko_is_underground,
-        road_ko_full,
-        road_en_region1,
-        road_en_region2,
-        road_en_region3,
-        road_en_road_name,
-        road_en_building_no,
-        road_en_is_underground,
-        road_en_full,
-        road_code,
-        road_local_area_serial,
-        road_postal_code,
-        road_building_name_ko,
-        parcel_ko_region1,
-        parcel_ko_region2,
-        parcel_ko_region3,
-        parcel_ko_region4,
-        parcel_ko_is_mountain_lot,
-        parcel_ko_main_no,
-        parcel_ko_sub_no,
-        parcel_ko_parcel_no,
-        parcel_ko_full,
-        parcel_en_region1,
-        parcel_en_region2,
-        parcel_en_region3,
-        parcel_en_region4,
-        parcel_en_is_mountain_lot,
-        parcel_en_main_no,
-        parcel_en_sub_no,
-        parcel_en_parcel_no,
-        parcel_en_full,
-        parcel_legal_area_code
-      )
-      VALUES ${placeholders.join(', ')}
-      ON CONFLICT (id) DO UPDATE SET
-        x = EXCLUDED.x,
-        y = EXCLUDED.y,
-        display_ko = EXCLUDED.display_ko,
-        display_en = EXCLUDED.display_en,
-        search_ko = EXCLUDED.search_ko,
-        search_en = EXCLUDED.search_en,
-        road_ko_region1 = EXCLUDED.road_ko_region1,
-        road_ko_region2 = EXCLUDED.road_ko_region2,
-        road_ko_region3 = EXCLUDED.road_ko_region3,
-        road_ko_road_name = EXCLUDED.road_ko_road_name,
-        road_ko_building_no = EXCLUDED.road_ko_building_no,
-        road_ko_is_underground = EXCLUDED.road_ko_is_underground,
-        road_ko_full = EXCLUDED.road_ko_full,
-        road_en_region1 = EXCLUDED.road_en_region1,
-        road_en_region2 = EXCLUDED.road_en_region2,
-        road_en_region3 = EXCLUDED.road_en_region3,
-        road_en_road_name = EXCLUDED.road_en_road_name,
-        road_en_building_no = EXCLUDED.road_en_building_no,
-        road_en_is_underground = EXCLUDED.road_en_is_underground,
-        road_en_full = EXCLUDED.road_en_full,
-        road_code = EXCLUDED.road_code,
-        road_local_area_serial = EXCLUDED.road_local_area_serial,
-        road_postal_code = EXCLUDED.road_postal_code,
-        road_building_name_ko = EXCLUDED.road_building_name_ko,
-        parcel_ko_region1 = EXCLUDED.parcel_ko_region1,
-        parcel_ko_region2 = EXCLUDED.parcel_ko_region2,
-        parcel_ko_region3 = EXCLUDED.parcel_ko_region3,
-        parcel_ko_region4 = EXCLUDED.parcel_ko_region4,
-        parcel_ko_is_mountain_lot = EXCLUDED.parcel_ko_is_mountain_lot,
-        parcel_ko_main_no = EXCLUDED.parcel_ko_main_no,
-        parcel_ko_sub_no = EXCLUDED.parcel_ko_sub_no,
-        parcel_ko_parcel_no = EXCLUDED.parcel_ko_parcel_no,
-        parcel_ko_full = EXCLUDED.parcel_ko_full,
-        parcel_en_region1 = EXCLUDED.parcel_en_region1,
-        parcel_en_region2 = EXCLUDED.parcel_en_region2,
-        parcel_en_region3 = EXCLUDED.parcel_en_region3,
-        parcel_en_region4 = EXCLUDED.parcel_en_region4,
-        parcel_en_is_mountain_lot = EXCLUDED.parcel_en_is_mountain_lot,
-        parcel_en_main_no = EXCLUDED.parcel_en_main_no,
-        parcel_en_sub_no = EXCLUDED.parcel_en_sub_no,
-        parcel_en_parcel_no = EXCLUDED.parcel_en_parcel_no,
-        parcel_en_full = EXCLUDED.parcel_en_full,
-        parcel_legal_area_code = EXCLUDED.parcel_legal_area_code
-    `;
-
-    await this.dataSource.query(sql, values);
+    await qr.query(sql, arrays);
   }
 }

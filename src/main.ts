@@ -1,7 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { INestApplication, Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigModule } from '@nestjs/config';
 
 import { AddressesModule } from './addresses/addresses.module';
 import { DatabaseModule } from './database/database.module';
@@ -14,6 +14,17 @@ import { DatabaseModule } from './database/database.module';
   ],
 })
 class AppModule {}
+
+function getPortFromEnv(): number {
+  const raw = process.env.PORT;
+  if (!raw) return 3000;
+
+  const port = Number(raw);
+  if (!Number.isFinite(port)) {
+    throw new Error('PORT is not a number');
+  }
+  return port;
+}
 
 function setupSwagger(app: INestApplication): void {
   const config = new DocumentBuilder()
@@ -32,8 +43,7 @@ async function bootstrap(): Promise<void> {
   app.enableShutdownHooks();
   setupSwagger(app);
 
-  const configService = app.get(ConfigService);
-  const port = configService.get<number>('PORT') ?? 3000;
+  const port = getPortFromEnv();
 
   await app.listen(port);
 }
