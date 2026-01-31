@@ -1,24 +1,22 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
-import { Pool } from 'pg';
-import { PG_POOL } from '../database/database.constants';
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, SelectQueryBuilder } from 'typeorm';
 import {
   AddressSearchLanguage,
   AddressSearchResult,
   SearchAddressesRequest,
 } from './dto/search-addresses.dto';
-
-interface AddressRow {
-  id: string;
-  display_ko: string | null;
-  display_en: string | null;
-  search_ko: string | null;
-  search_en: string | null;
-  payload: Record<string, unknown>;
-}
+import { AddressEntity } from './entities/address.entity';
 
 @Injectable()
 export class AddressesService {
-  constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
+  /**
+   * Создаёт сервис с доступом к репозиторию адресов.
+   */
+  constructor(
+    @InjectRepository(AddressEntity)
+    private readonly addressRepository: Repository<AddressEntity>,
+  ) {}
 
   /**
    * Ищет адреса по строке пользователя и возвращает список совпадений.
@@ -26,29 +24,85 @@ export class AddressesService {
   async search(
     request: SearchAddressesRequest,
   ): Promise<AddressSearchResult[]> {
-    const query = request.query?.trim();
-    if (!query) {
+    const queryText = request.query?.trim();
+    if (!queryText) {
       throw new BadRequestException('Параметр query обязателен.');
     }
 
     const limit = this.normalizeLimit(request.limit);
     const offset = this.normalizeOffset(request.offset);
     const lang = this.normalizeLanguage(request.lang);
-    const searchValue = `%${query.toLowerCase()}%`;
+    const searchValue = `%${queryText.toLowerCase()}%`;
 
-    const { text, values } = this.buildSearchQuery(
+    const queryBuilder = this.buildSearchQuery(
       lang,
       searchValue,
       limit,
       offset,
     );
-    const result = await this.pool.query<AddressRow>(text, values);
+    const addresses = await queryBuilder.getMany();
 
-    return result.rows.map((row) => ({
-      id: row.id,
-      display: { ko: row.display_ko, en: row.display_en },
-      search: { ko: row.search_ko, en: row.search_en },
-      payload: row.payload,
+    return addresses.map((address) => ({
+      id: address.id,
+      x: address.x,
+      y: address.y,
+      display: { ko: address.displayKo, en: address.displayEn },
+      road: {
+        ko: {
+          region1: address.roadKoRegion1,
+          region2: address.roadKoRegion2,
+          region3: address.roadKoRegion3,
+          roadName: address.roadKoRoadName,
+          buildingNo: address.roadKoBuildingNo,
+          isUnderground: address.roadKoIsUnderground,
+          full: address.roadKoFull,
+        },
+        en: {
+          region1: address.roadEnRegion1,
+          region2: address.roadEnRegion2,
+          region3: address.roadEnRegion3,
+          roadName: address.roadEnRoadName,
+          buildingNo: address.roadEnBuildingNo,
+          isUnderground: address.roadEnIsUnderground,
+          full: address.roadEnFull,
+        },
+        codes: {
+          roadCode: address.roadCode,
+          localAreaSerial: address.roadLocalAreaSerial,
+          postalCode: address.roadPostalCode,
+        },
+        building: {
+          nameKo: address.roadBuildingNameKo,
+        },
+      },
+      parcel: {
+        ko: {
+          region1: address.parcelKoRegion1,
+          region2: address.parcelKoRegion2,
+          region3: address.parcelKoRegion3,
+          region4: address.parcelKoRegion4,
+          isMountainLot: address.parcelKoIsMountainLot,
+          mainNo: address.parcelKoMainNo,
+          subNo: address.parcelKoSubNo,
+          parcelNo: address.parcelKoParcelNo,
+          full: address.parcelKoFull,
+        },
+        en: {
+          region1: address.parcelEnRegion1,
+          region2: address.parcelEnRegion2,
+          region3: address.parcelEnRegion3,
+          region4: address.parcelEnRegion4,
+          isMountainLot: address.parcelEnIsMountainLot,
+          mainNo: address.parcelEnMainNo,
+          subNo: address.parcelEnSubNo,
+          parcelNo: address.parcelEnParcelNo,
+          full: address.parcelEnFull,
+        },
+        codes: {
+          legalAreaCode: address.parcelLegalAreaCode,
+        },
+      },
+      search: { ko: address.searchKo, en: address.searchEn },
     }));
   }
 
@@ -85,30 +139,35 @@ export class AddressesService {
   }
 
   /**
-   * Формирует SQL запрос для поиска по адресам.
+   * Формирует запрос поиска по адресам через TypeORM.
    */
   private buildSearchQuery(
     lang: AddressSearchLanguage,
     searchValue: string,
     limit: number,
     offset: number,
-  ): { text: string; values: Array<string | number> } {
-    const conditions =
-      lang === 'ko'
-        ? 'search_ko ILIKE $1'
-        : lang === 'en'
-          ? 'search_en ILIKE $1'
-          : '(search_ko ILIKE $1 OR search_en ILIKE $1)';
+  ): SelectQueryBuilder<AddressEntity> {
+    const queryBuilder = this.addressRepository
+      .createQueryBuilder('address')
+      .orderBy('address.id', 'ASC')
+      .limit(limit)
+      .offset(offset);
 
-    return {
-      text: `
-        SELECT id, display_ko, display_en, search_ko, search_en, payload
-        FROM addresses
-        WHERE ${conditions}
-        ORDER BY id
-        LIMIT $2 OFFSET $3
-      `,
-      values: [searchValue, limit, offset],
-    };
+    if (lang === 'ko') {
+      return queryBuilder.where('address.searchKo ILIKE :search', {
+        search: searchValue,
+      });
+    }
+
+    if (lang === 'en') {
+      return queryBuilder.where('address.searchEn ILIKE :search', {
+        search: searchValue,
+      });
+    }
+
+    return queryBuilder.where(
+      '(address.searchKo ILIKE :search OR address.searchEn ILIKE :search)',
+      { search: searchValue },
+    );
   }
 }
