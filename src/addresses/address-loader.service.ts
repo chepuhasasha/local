@@ -5,12 +5,9 @@ import * as https from 'node:https';
 import * as path from 'node:path';
 import { TextDecoder } from 'node:util';
 
-import { Injectable, OnApplicationBootstrap } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { DataSource } from 'typeorm';
 import * as unzipper from 'unzipper';
-
-import { AddressEntity } from './entities/address.entity';
 
 type Defaults = Readonly<{
   chunkSize: number;
@@ -135,19 +132,28 @@ type ZipDirectory = {
 @Injectable()
 export class AddressLoaderService implements OnApplicationBootstrap {
   private static readonly INSERT_COLS_PER_ROW = 44;
+  private readonly logger = new Logger(AddressLoaderService.name);
 
-  constructor(
-    private readonly dataSource: DataSource,
-    @InjectRepository(AddressEntity)
-    private readonly addressRepository: Repository<AddressEntity>,
-  ) {}
+  constructor(private readonly dataSource: DataSource) {}
 
   async onApplicationBootstrap(): Promise<void> {
-    await this.ensureSchema();
-    const hasData = await this.addressRepository.count();
-    if (hasData > 0) return;
+    this.logger.log('[bootstrap] start');
 
+    await this.ensureSchema();
+
+    // Exact count (can take time on big tables) — log start/end to avoid “silent pause”.
+    this.logger.log('[bootstrap] checking existing data (exact COUNT(*))...');
+    const existing = await this.getAddressesCountExact();
+    this.logger.log(`[bootstrap] addresses_count=${existing.toString()}`);
+
+    if (existing > 0n) {
+      this.logger.log('[bootstrap] data exists -> loader skipped');
+      return;
+    }
+
+    this.logger.log('[bootstrap] no data -> starting loader');
     await this.loadAddresses();
+    this.logger.log('[bootstrap] loader finished');
   }
 
   private async ensureSchema(): Promise<void> {
@@ -210,6 +216,28 @@ export class AddressLoaderService implements OnApplicationBootstrap {
     `);
   }
 
+  private async getAddressesCountExact(): Promise<bigint> {
+    const t0 = Date.now();
+
+    const rows = (await this.dataSource.query(
+      `SELECT COUNT(*)::bigint AS cnt FROM addresses`,
+    )) as Array<{ cnt: string | number }>;
+
+    const cntRaw = rows[0]?.cnt ?? '0';
+
+    let cnt: bigint;
+    try {
+      cnt = typeof cntRaw === 'number' ? BigInt(cntRaw) : BigInt(cntRaw);
+    } catch {
+      cnt = 0n;
+    }
+
+    this.logger.log(
+      `[bootstrap] COUNT(*) done in ${Date.now() - t0}ms (cnt=${cnt.toString()})`,
+    );
+    return cnt;
+  }
+
   private async loadAddresses(): Promise<void> {
     const month = this.getMonthFromEnv();
     const decoder = this.createDecoder();
@@ -217,9 +245,12 @@ export class AddressLoaderService implements OnApplicationBootstrap {
 
     const url = this.buildZipUrl(month);
 
-    // Temporary zip file outside the project folder (so watcher does not restart the app).
+    // Put temp zip outside project folder to avoid watch-triggered restarts
     const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'addr-'));
     const zipPath = path.join(tmpDir, `${month}.zip`);
+
+    this.logger.log(`[load] month=${month}`);
+    this.logger.log(`[load] temp_dir=${tmpDir}`);
 
     try {
       await this.downloadToFileWithProgress(
@@ -228,11 +259,14 @@ export class AddressLoaderService implements OnApplicationBootstrap {
         DEFAULTS.downloadLogEveryMs,
       );
 
-      // Pass 1: count total lines across build_*.txt (for "out of total" progress)
+      this.logger.log('[load] counting total lines in build_*.txt (pass 1)...');
+      const tCount0 = Date.now();
       const totalLines = await this.countTotalBuildLines(zipPath);
-      process.stdout.write(`[load] total_lines=${totalLines}\n`);
+      this.logger.log(
+        `[load] total_lines=${totalLines} (pass 1 in ${Date.now() - tCount0}ms)`,
+      );
 
-      // Pass 2: open zip again and process
+      this.logger.log('[load] opening zip (pass 2)...');
       const zip = await this.openZip(zipPath);
 
       const roadEntry = this.pickRoadEntry(zip.files);
@@ -242,8 +276,14 @@ export class AddressLoaderService implements OnApplicationBootstrap {
       if (buildEntries.length === 0)
         throw new Error('build_*.txt not found in zip.');
 
+      this.logger.log(
+        `[load] files: road=1 build=${buildEntries.length} (pass 2)`,
+      );
+
       const roadIndex = new Map<string, RoadIndexEntry['value']>();
 
+      this.logger.log('[load] building road index...');
+      const tRoad0 = Date.now();
       await this.forEachLineFromReadable(
         roadEntry.stream(),
         decoder,
@@ -257,6 +297,9 @@ export class AddressLoaderService implements OnApplicationBootstrap {
           if (!roadIndex.has(idx.key)) roadIndex.set(idx.key, idx.value);
         },
       );
+      this.logger.log(
+        `[load] road index size=${roadIndex.size} (${Date.now() - tRoad0}ms)`,
+      );
 
       const buffer: AddressDocument[] = [];
       let inserted = 0;
@@ -264,16 +307,18 @@ export class AddressLoaderService implements OnApplicationBootstrap {
       let lastInsertLogAt = Date.now() - DEFAULTS.insertLogEveryMs;
 
       const logProgress = (final = false): void => {
-        const percent =
+        const pct =
           totalLines > 0 ? ((processed / totalLines) * 100).toFixed(2) : '0.00';
-        process.stdout.write(
-          `[load] processed=${processed}/${totalLines} (${percent}%) inserted=${inserted}${
+        this.logger.log(
+          `[load] processed=${processed}/${totalLines} (${pct}%) inserted=${inserted}${
             final ? ' done' : ''
-          }\n`,
+          }`,
         );
       };
 
       for (const entry of buildEntries) {
+        this.logger.log(`[load] processing ${entry.path}...`);
+
         await this.forEachLineFromReadable(
           entry.stream(),
           decoder,
@@ -333,9 +378,14 @@ export class AddressLoaderService implements OnApplicationBootstrap {
       }
 
       logProgress(true);
+
+      // Optional: log exact count after load
+      this.logger.log('[load] verifying exact count after load...');
+      const after = await this.getAddressesCountExact();
+      this.logger.log(`[load] addresses_count_after=${after.toString()}`);
     } finally {
-      // Remove temp zip and folder.
       await fs.promises.rm(tmpDir, { recursive: true, force: true });
+      this.logger.log('[load] temp files removed');
     }
   }
 
@@ -506,19 +556,8 @@ export class AddressLoaderService implements OnApplicationBootstrap {
           let downloaded = 0;
           let lastLogAt = Date.now() - logEveryMs;
 
-          const log = (final = false): void => {
-            const hasTotal = total > 0;
-            const percent = hasTotal
-              ? this.pct(downloaded, total).toFixed(1)
-              : '?';
-            const totalStr = hasTotal ? this.humanBytes(total) : '?';
-            process.stdout.write(
-              `[download] ${final ? 'done ' : ''}${percent}% (${this.humanBytes(downloaded)}/${totalStr})\n`,
-            );
-          };
-
-          process.stdout.write(
-            `[download] start total=${total > 0 ? this.humanBytes(total) : '?'}\n`,
+          this.logger.log(
+            `[download] start total=${total > 0 ? this.humanBytes(total) : '?'}`,
           );
 
           const out = fs.createWriteStream(destPath);
@@ -530,12 +569,29 @@ export class AddressLoaderService implements OnApplicationBootstrap {
             const now = Date.now();
             if (now - lastLogAt >= logEveryMs) {
               lastLogAt = now;
-              log(false);
+
+              const hasTotal = total > 0;
+              const percent = hasTotal
+                ? this.pct(downloaded, total).toFixed(1)
+                : '?';
+              const totalStr = hasTotal ? this.humanBytes(total) : '?';
+
+              this.logger.log(
+                `[download] ${percent}% (${this.humanBytes(downloaded)}/${totalStr})`,
+              );
             }
           });
 
           out.on('finish', () => {
-            log(true);
+            const hasTotal = total > 0;
+            const percent = hasTotal
+              ? this.pct(downloaded, total).toFixed(1)
+              : '?';
+            const totalStr = hasTotal ? this.humanBytes(total) : '?';
+
+            this.logger.log(
+              `[download] done ${percent}% (${this.humanBytes(downloaded)}/${totalStr})`,
+            );
             resolve();
           });
 
