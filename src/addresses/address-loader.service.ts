@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as http from 'node:http';
 import * as https from 'node:https';
 import * as path from 'node:path';
@@ -12,21 +13,15 @@ import * as unzipper from 'unzipper';
 import { AddressEntity } from './entities/address.entity';
 
 type Defaults = Readonly<{
-  workDir: string;
   chunkSize: number;
-  reuse: boolean;
-  progressEveryMs: number;
-  progressEveryLines: number;
   downloadLogEveryMs: number;
+  insertLogEveryMs: number;
 }>;
 
 const DEFAULTS: Defaults = {
-  workDir: path.resolve(process.cwd(), 'work'),
   chunkSize: 1000,
-  reuse: true,
-  progressEveryMs: 2000,
-  progressEveryLines: 500_000,
   downloadLogEveryMs: 1500,
+  insertLogEveryMs: 1500,
 };
 
 type Format = Readonly<{
@@ -43,6 +38,7 @@ const FORMAT: Format = {
   includeUndergroundWordEn: false,
 };
 
+// Prefixes are stored as unicode escapes to avoid non-ascii characters in source.
 const KO_MOUNTAIN_PREFIX = '\uC0B0';
 const KO_UNDERGROUND_PREFIX = '\uC9C0\uD558';
 
@@ -126,12 +122,14 @@ type RoadIndexEntry = {
   };
 };
 
-type ProgressState = {
-  filePath: string;
-  fileSize: number;
-  bytesRead: number;
-  linesRead: number;
-  isFinal: boolean;
+type ZipEntry = {
+  path: string;
+  type: 'File' | 'Directory';
+  stream: () => NodeJS.ReadableStream;
+};
+
+type ZipDirectory = {
+  files: ZipEntry[];
 };
 
 @Injectable()
@@ -148,6 +146,7 @@ export class AddressLoaderService implements OnApplicationBootstrap {
     await this.ensureSchema();
     const hasData = await this.addressRepository.count();
     if (hasData > 0) return;
+
     await this.loadAddresses();
   }
 
@@ -214,117 +213,141 @@ export class AddressLoaderService implements OnApplicationBootstrap {
   private async loadAddresses(): Promise<void> {
     const month = this.getMonthFromEnv();
     const decoder = this.createDecoder();
-    if (!decoder) {
-      throw new Error('Decoder not available (convert inputs to UTF-8).');
-    }
+    if (!decoder) throw new Error('Decoder not available.');
 
     const url = this.buildZipUrl(month);
-    const zipDir = path.join(DEFAULTS.workDir, 'zips');
-    const zipPath = path.join(zipDir, `${month}.zip`);
-    const unpackDir = path.join(DEFAULTS.workDir, 'unpacked', month);
 
-    this.ensureDir(zipDir);
+    // Temporary zip file outside the project folder (so watcher does not restart the app).
+    const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'addr-'));
+    const zipPath = path.join(tmpDir, `${month}.zip`);
 
-    const zipExists = fs.existsSync(zipPath);
-    const zipSize = this.safeSize(zipPath);
-
-    if (!DEFAULTS.reuse || !zipExists || zipSize === 0) {
-      await this.downloadFileWithLogs(
+    try {
+      await this.downloadToFileWithProgress(
         url,
         zipPath,
         DEFAULTS.downloadLogEveryMs,
       );
-    } else {
-      process.stdout.write(
-        `[download] reuse ${path.basename(zipPath)} size=${this.humanBytes(zipSize)}\n`,
-      );
-    }
 
-    const unpackExists = fs.existsSync(unpackDir);
-    const unpackHasFiles = unpackExists && fs.readdirSync(unpackDir).length > 0;
+      // Pass 1: count total lines across build_*.txt (for "out of total" progress)
+      const totalLines = await this.countTotalBuildLines(zipPath);
+      process.stdout.write(`[load] total_lines=${totalLines}\n`);
 
-    if (!DEFAULTS.reuse || !unpackHasFiles) {
-      await this.unzip(zipPath, unpackDir);
-    } else {
-      process.stdout.write(`[unpack] reuse ${month}\n`);
-    }
+      // Pass 2: open zip again and process
+      const zip = await this.openZip(zipPath);
 
-    const allFiles = this.listFilesRecursive(unpackDir);
-    const roadFile = this.pickRoadFile(allFiles);
-    const buildFiles = this.pickBuildFiles(allFiles);
+      const roadEntry = this.pickRoadEntry(zip.files);
+      const buildEntries = this.pickBuildEntries(zip.files);
 
-    if (!roadFile)
-      throw new Error('road_code_total*.txt not found in archive.');
-    if (buildFiles.length === 0) {
-      throw new Error('build_* files not found in archive.');
-    }
+      if (!roadEntry) throw new Error('road_code_total*.txt not found in zip.');
+      if (buildEntries.length === 0)
+        throw new Error('build_*.txt not found in zip.');
 
-    const totalLines = await this.countTotalLines(buildFiles);
-    const roadIndex = new Map<string, RoadIndexEntry['value']>();
+      const roadIndex = new Map<string, RoadIndexEntry['value']>();
 
-    await this.forEachLine(
-      roadFile,
-      decoder,
-      (line) => {
-        const cols = line.split('|');
-        if (cols.length < 5) return;
-
-        const idx = this.indexRoadRow(cols);
-        if (!idx) return;
-
-        if (!roadIndex.has(idx.key)) roadIndex.set(idx.key, idx.value);
-      },
-      undefined,
-      {
-        logEveryMs: DEFAULTS.progressEveryMs,
-        logEveryLines: DEFAULTS.progressEveryLines,
-      },
-    );
-
-    const buffer: AddressDocument[] = [];
-    let inserted = 0;
-
-    for (let i = 0; i < buildFiles.length; i += 1) {
-      const buildFile = buildFiles[i];
-      const base = path.basename(buildFile);
-
-      const printer = this.makeBuildProgressPrinter({
-        label: `[build ${i + 1}/${buildFiles.length} ${base}]`,
-        getState: () => ({ inserted, buffered: buffer.length }),
-      });
-
-      await this.forEachLine(
-        buildFile,
+      await this.forEachLineFromReadable(
+        roadEntry.stream(),
         decoder,
-        async (line) => {
+        (line) => {
           const cols = line.split('|');
-          if (cols.length < 16) return;
+          if (cols.length < 5) return;
 
-          const doc = this.buildToDoc(cols, roadIndex);
-          if (!doc) return;
+          const idx = this.indexRoadRow(cols);
+          if (!idx) return;
 
-          buffer.push(doc);
-
-          if (buffer.length >= DEFAULTS.chunkSize) {
-            const batch = buffer.splice(0, buffer.length);
-            await this.insertDocuments(batch);
-            inserted += batch.length;
-            this.logInsertProgress(inserted, totalLines);
-          }
-        },
-        printer,
-        {
-          logEveryMs: DEFAULTS.progressEveryMs,
-          logEveryLines: DEFAULTS.progressEveryLines,
+          if (!roadIndex.has(idx.key)) roadIndex.set(idx.key, idx.value);
         },
       );
-    }
 
-    if (buffer.length > 0) {
-      const batch = buffer.splice(0, buffer.length);
-      await this.insertDocuments(batch);
-      inserted += batch.length;
-      this.logInsertProgress(inserted, totalLines, true);
+      const buffer: AddressDocument[] = [];
+      let inserted = 0;
+      let processed = 0;
+      let lastInsertLogAt = Date.now() - DEFAULTS.insertLogEveryMs;
+
+      const logProgress = (final = false): void => {
+        const percent =
+          totalLines > 0 ? ((processed / totalLines) * 100).toFixed(2) : '0.00';
+        process.stdout.write(
+          `[load] processed=${processed}/${totalLines} (${percent}%) inserted=${inserted}${
+            final ? ' done' : ''
+          }\n`,
+        );
+      };
+
+      for (const entry of buildEntries) {
+        await this.forEachLineFromReadable(
+          entry.stream(),
+          decoder,
+          async (line) => {
+            processed += 1;
+
+            const cols = line.split('|');
+            if (cols.length < 16) {
+              this.maybeLogInsertProgress(
+                logProgress,
+                () => lastInsertLogAt,
+                (v) => {
+                  lastInsertLogAt = v;
+                },
+              );
+              return;
+            }
+
+            const doc = this.buildToDoc(cols, roadIndex);
+            if (!doc) {
+              this.maybeLogInsertProgress(
+                logProgress,
+                () => lastInsertLogAt,
+                (v) => {
+                  lastInsertLogAt = v;
+                },
+              );
+              return;
+            }
+
+            buffer.push(doc);
+
+            if (buffer.length >= DEFAULTS.chunkSize) {
+              const batch = buffer.splice(0, buffer.length);
+              await this.insertDocuments(batch);
+              inserted += batch.length;
+
+              logProgress(false);
+              lastInsertLogAt = Date.now();
+            } else {
+              this.maybeLogInsertProgress(
+                logProgress,
+                () => lastInsertLogAt,
+                (v) => {
+                  lastInsertLogAt = v;
+                },
+              );
+            }
+          },
+        );
+      }
+
+      if (buffer.length > 0) {
+        const batch = buffer.splice(0, buffer.length);
+        await this.insertDocuments(batch);
+        inserted += batch.length;
+      }
+
+      logProgress(true);
+    } finally {
+      // Remove temp zip and folder.
+      await fs.promises.rm(tmpDir, { recursive: true, force: true });
+    }
+  }
+
+  private maybeLogInsertProgress(
+    log: (final?: boolean) => void,
+    getLastAt: () => number,
+    setLastAt: (v: number) => void,
+  ): void {
+    const now = Date.now();
+    if (now - getLastAt() >= DEFAULTS.insertLogEveryMs) {
+      setLastAt(now);
+      log(false);
     }
   }
 
@@ -358,7 +381,6 @@ export class AddressLoaderService implements OnApplicationBootstrap {
 
   private createDecoder(): TextDecoder | null {
     const encodings = ['windows-949', 'cp949', 'euc-kr', 'utf-8'] as const;
-
     for (const enc of encodings) {
       try {
         const dec = new TextDecoder(enc);
@@ -371,41 +393,26 @@ export class AddressLoaderService implements OnApplicationBootstrap {
     return null;
   }
 
-  private ensureDir(dirPath: string): void {
-    fs.mkdirSync(dirPath, { recursive: true });
+  private getHttpLib(urlObj: URL): typeof http | typeof https {
+    return urlObj.protocol === 'https:' ? https : http;
   }
 
-  private safeSize(filePath: string): number {
-    try {
-      return fs.statSync(filePath).size;
-    } catch {
-      return 0;
-    }
+  private pct(done: number, total: number): number {
+    if (!total || total <= 0) return 0;
+    return Math.max(0, Math.min(100, (done / total) * 100));
   }
 
   private humanBytes(bytes: number): string {
     if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
-
     const units = ['B', 'KB', 'MB', 'GB', 'TB'] as const;
     let i = 0;
     let value = bytes;
-
     while (value >= 1024 && i < units.length - 1) {
       value /= 1024;
       i += 1;
     }
-
     const normalized = i === 0 ? `${Math.round(value)}` : value.toFixed(1);
     return `${normalized} ${units[i]}`;
-  }
-
-  private pct(bytesRead: number, total: number): number {
-    if (!total || total <= 0) return 0;
-    return Math.max(0, Math.min(100, (bytesRead / total) * 100));
-  }
-
-  private getHttpLib(urlObj: URL): typeof http | typeof https {
-    return urlObj.protocol === 'https:' ? https : http;
   }
 
   private headContentLength(url: string, maxRedirects = 5): Promise<number> {
@@ -446,33 +453,20 @@ export class AddressLoaderService implements OnApplicationBootstrap {
     });
   }
 
-  private async downloadFileWithLogs(
+  private async downloadToFileWithProgress(
     url: string,
     destPath: string,
     logEveryMs: number,
+    redirects = 5,
   ): Promise<void> {
+    await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
     const totalFromHead = await this.headContentLength(url);
 
     return new Promise((resolve, reject) => {
       const urlObj = new URL(url);
-      this.ensureDir(path.dirname(destPath));
-      const out = fs.createWriteStream(destPath);
+      const lib = this.getHttpLib(urlObj);
 
-      let downloaded = 0;
-      let total = totalFromHead || 0;
-      let lastLogAt = Date.now() - logEveryMs;
-
-      const logProgress = (): void => {
-        const hasTotal = total > 0;
-        const percent = hasTotal ? this.pct(downloaded, total).toFixed(1) : '?';
-        const totalStr = hasTotal ? this.humanBytes(total) : '?';
-
-        process.stdout.write(
-          `[download] ${percent}% (${this.humanBytes(downloaded)}/${totalStr})\n`,
-        );
-      };
-
-      const req = this.getHttpLib(urlObj).get(
+      const req = lib.get(
         {
           hostname: urlObj.hostname,
           path: urlObj.pathname + urlObj.search,
@@ -481,126 +475,114 @@ export class AddressLoaderService implements OnApplicationBootstrap {
         (res) => {
           const code = res.statusCode ?? 0;
 
-          if (code >= 300 && code < 400 && res.headers.location) {
+          if (
+            code >= 300 &&
+            code < 400 &&
+            res.headers.location &&
+            redirects > 0
+          ) {
             res.resume();
-            out.close();
-
-            try {
-              fs.unlinkSync(destPath);
-            } catch {
-              // ignore
-            }
-
             const next = new URL(res.headers.location, urlObj).toString();
-            resolve(this.downloadFileWithLogs(next, destPath, logEveryMs));
+            resolve(
+              this.downloadToFileWithProgress(
+                next,
+                destPath,
+                logEveryMs,
+                redirects - 1,
+              ),
+            );
             return;
           }
 
           if (code !== 200) {
             res.resume();
-            out.close();
-
-            try {
-              fs.unlinkSync(destPath);
-            } catch {
-              // ignore
-            }
-
             reject(new Error(`HTTP ${code}`));
             return;
           }
 
-          const cl = Number(res.headers['content-length'] ?? 0);
-          if (cl > 0) total = cl;
+          const contentLen = Number(res.headers['content-length'] ?? 0);
+          const total = contentLen > 0 ? contentLen : totalFromHead;
+
+          let downloaded = 0;
+          let lastLogAt = Date.now() - logEveryMs;
+
+          const log = (final = false): void => {
+            const hasTotal = total > 0;
+            const percent = hasTotal
+              ? this.pct(downloaded, total).toFixed(1)
+              : '?';
+            const totalStr = hasTotal ? this.humanBytes(total) : '?';
+            process.stdout.write(
+              `[download] ${final ? 'done ' : ''}${percent}% (${this.humanBytes(downloaded)}/${totalStr})\n`,
+            );
+          };
 
           process.stdout.write(
-            `[download] start ${path.basename(destPath)} total=${
-              total > 0 ? this.humanBytes(total) : '?'
-            }\n`,
+            `[download] start total=${total > 0 ? this.humanBytes(total) : '?'}\n`,
           );
-          logProgress();
+
+          const out = fs.createWriteStream(destPath);
+          out.on('error', reject);
 
           res.on('data', (chunk: Buffer) => {
             downloaded += chunk.length;
+
             const now = Date.now();
             if (now - lastLogAt >= logEveryMs) {
               lastLogAt = now;
-              logProgress();
+              log(false);
             }
           });
 
-          res.pipe(out);
-
           out.on('finish', () => {
-            out.close(() => {
-              logProgress();
-              process.stdout.write(
-                `[download] done ${path.basename(destPath)}\n`,
-              );
-              resolve();
-            });
+            log(true);
+            resolve();
           });
 
-          out.on('error', (error) => reject(error));
+          res.pipe(out);
         },
       );
 
-      req.on('error', (error) => reject(error));
+      req.on('error', reject);
     });
   }
 
-  private unzip(zipPath: string, destDir: string): Promise<void> {
-    this.ensureDir(destDir);
-    process.stdout.write(`[unpack] start ${path.basename(zipPath)}\n`);
-
-    return new Promise((resolve, reject) => {
-      const readStream = fs.createReadStream(zipPath);
-      const stream = (
-        unzipper as unknown as {
-          Extract: (opts: { path: string }) => NodeJS.WritableStream;
-        }
-      ).Extract({ path: destDir });
-
-      readStream.on('error', (err: unknown) => reject(err as Error));
-
-      stream.on('close', () => {
-        process.stdout.write(`[unpack] done ${path.basename(zipPath)}\n`);
-        resolve();
-      });
-
-      stream.on('error', (err: unknown) => reject(err as Error));
-
-      readStream.pipe(stream);
-    });
+  private async openZip(zipPath: string): Promise<ZipDirectory> {
+    const api = unzipper as unknown as {
+      Open: { file: (p: string) => Promise<ZipDirectory> };
+    };
+    return api.Open.file(zipPath);
   }
 
-  private async forEachLine(
-    filePath: string,
+  private pickRoadEntry(files: ZipEntry[]): ZipEntry | null {
+    const candidates = files.filter((f) => {
+      if (f.type !== 'File') return false;
+      const base = path.basename(f.path);
+      return /road_code_total/i.test(base) && /\.txt$/i.test(base);
+    });
+
+    return candidates.length > 0 ? candidates[0] : null;
+  }
+
+  private pickBuildEntries(files: ZipEntry[]): ZipEntry[] {
+    return files
+      .filter((f) => {
+        if (f.type !== 'File') return false;
+        const base = path.basename(f.path);
+        return base.startsWith('build_') && /\.txt$/i.test(base);
+      })
+      .sort((a, b) => a.path.localeCompare(b.path));
+  }
+
+  private async forEachLineFromReadable(
+    readable: NodeJS.ReadableStream,
     decoder: TextDecoder,
     onLine: (line: string) => void | Promise<void>,
-    onProgress?: (state: ProgressState) => void,
-    opts: { logEveryMs?: number; logEveryLines?: number } = {},
   ): Promise<void> {
-    const fileSize = this.safeSize(filePath);
-    const logEveryMs = opts.logEveryMs ?? 2000;
-    const logEveryLines = opts.logEveryLines ?? 500000;
-
-    const stream = fs.createReadStream(filePath) as fs.ReadStream &
-      AsyncIterable<Buffer>;
-
+    const stream = readable as NodeJS.ReadableStream & AsyncIterable<Buffer>;
     let remainder = '';
-    let bytesRead = 0;
-    let linesRead = 0;
-    let lastReportAt = Date.now();
-
-    const report = (isFinal: boolean): void => {
-      if (!onProgress) return;
-      onProgress({ filePath, fileSize, bytesRead, linesRead, isFinal });
-    };
 
     for await (const chunk of stream) {
-      bytesRead += chunk.length;
-
       const text = decoder.decode(chunk, { stream: true });
       const data = remainder + text;
       const parts = data.split('\n');
@@ -611,69 +593,49 @@ export class AddressLoaderService implements OnApplicationBootstrap {
         if (line.length === 0) continue;
         if (line.charCodeAt(0) === 0xfeff) line = line.slice(1);
 
-        linesRead += 1;
         await Promise.resolve(onLine(line));
-
-        if (logEveryLines > 0 && linesRead % logEveryLines === 0) {
-          report(false);
-          lastReportAt = Date.now();
-        }
-      }
-
-      if (logEveryMs > 0 && Date.now() - lastReportAt >= logEveryMs) {
-        report(false);
-        lastReportAt = Date.now();
       }
     }
 
     const tail = decoder.decode(new Uint8Array(), { stream: false });
     const last = (remainder + tail).replace(/\r$/, '');
     if (last.length > 0) {
-      linesRead += 1;
       await Promise.resolve(onLine(last));
     }
-
-    report(true);
   }
 
-  private listFilesRecursive(rootDir: string): string[] {
-    const out: string[] = [];
-    const stack: string[] = [rootDir];
+  private async countLinesFromReadable(
+    readable: NodeJS.ReadableStream,
+  ): Promise<number> {
+    const stream = readable as NodeJS.ReadableStream & AsyncIterable<Buffer>;
 
-    while (stack.length > 0) {
-      const current = stack.pop();
-      if (!current) continue;
+    let count = 0;
+    let sawAny = false;
+    let lastByteIsNewline = false;
 
-      const entries = fs.readdirSync(current, { withFileTypes: true });
-      for (const entry of entries) {
-        const entryPath = path.join(current, entry.name);
-        if (entry.isDirectory()) stack.push(entryPath);
-        else if (entry.isFile()) out.push(entryPath);
+    for await (const chunk of stream) {
+      sawAny = sawAny || chunk.length > 0;
+
+      for (const b of chunk) {
+        if (b === 10) count += 1;
       }
+
+      lastByteIsNewline = chunk.length > 0 && chunk[chunk.length - 1] === 10;
     }
 
-    return out;
+    if (sawAny && !lastByteIsNewline) count += 1;
+    return count;
   }
 
-  private pickRoadFile(allFiles: string[]): string | null {
-    const candidates = allFiles
-      .filter((filePath) => {
-        const base = path.basename(filePath);
-        return /road_code_total/i.test(base) && /\.txt$/i.test(base);
-      })
-      .map((filePath) => ({ filePath, size: this.safeSize(filePath) }))
-      .sort((a, b) => b.size - a.size);
+  private async countTotalBuildLines(zipPath: string): Promise<number> {
+    const zip = await this.openZip(zipPath);
+    const buildEntries = this.pickBuildEntries(zip.files);
 
-    return candidates.length > 0 ? candidates[0].filePath : null;
-  }
-
-  private pickBuildFiles(allFiles: string[]): string[] {
-    return allFiles
-      .filter((filePath) => {
-        const base = path.basename(filePath);
-        return base.startsWith('build_') && /\.txt$/i.test(base);
-      })
-      .sort((a, b) => path.basename(a).localeCompare(path.basename(b)));
+    let total = 0;
+    for (const entry of buildEntries) {
+      total += await this.countLinesFromReadable(entry.stream());
+    }
+    return total;
   }
 
   private norm(value: unknown): string | null {
@@ -690,7 +652,7 @@ export class AddressLoaderService implements OnApplicationBootstrap {
         raw = value.toString();
         break;
       default:
-        return null; // не строкифицируем объекты
+        return null;
     }
 
     const trimmed = raw.trim();
@@ -724,7 +686,6 @@ export class AddressLoaderService implements OnApplicationBootstrap {
     const localAreaSerial = this.norm(row[4]);
 
     const roadCode = districtCode && roadNo ? `${districtCode}${roadNo}` : null;
-
     if (!roadCode || !localAreaSerial) return null;
 
     return {
@@ -909,7 +870,7 @@ export class AddressLoaderService implements OnApplicationBootstrap {
           region2: parcelKo.region2,
           region3: parcelKo.region3,
           region4: parcelKo.region4,
-          isMountainLot,
+          isMountainLot: isMountainLot,
           mainNo,
           subNo,
           parcelNo: parcelNoKo,
@@ -920,7 +881,7 @@ export class AddressLoaderService implements OnApplicationBootstrap {
           region2: roadEn.region2,
           region3: roadEn.area,
           region4: null,
-          isMountainLot,
+          isMountainLot: isMountainLot,
           mainNo,
           subNo,
           parcelNo: parcelNoEn,
@@ -930,70 +891,6 @@ export class AddressLoaderService implements OnApplicationBootstrap {
       },
       search: { ko: searchKo, en: searchEn },
     };
-  }
-
-  private makeBuildProgressPrinter(ctx: {
-    label: string;
-    getState: () => { inserted: number; buffered: number };
-  }): (state: ProgressState) => void {
-    let lastKey = '';
-
-    return (state) => {
-      const percent = this.pct(state.bytesRead, state.fileSize).toFixed(1);
-      const current = ctx.getState();
-
-      const line =
-        `${ctx.label}: ${percent}% ` +
-        `(${this.humanBytes(state.bytesRead)}/${this.humanBytes(state.fileSize)}) ` +
-        `lines=${state.linesRead} inserted=${current.inserted} buffer=${current.buffered}`;
-
-      const key = `${percent}|${state.linesRead}|${current.inserted}|${current.buffered}`;
-      if (key === lastKey && !state.isFinal) return;
-
-      lastKey = key;
-      process.stdout.write(`${line}\n`);
-    };
-  }
-
-  private async countLines(filePath: string): Promise<number> {
-    const stream = fs.createReadStream(filePath) as fs.ReadStream &
-      AsyncIterable<Buffer>;
-
-    let count = 0;
-    let lastChunkEndedWithNewline = false;
-
-    for await (const chunk of stream) {
-      for (const byte of chunk) {
-        if (byte === 10) count += 1;
-      }
-      lastChunkEndedWithNewline =
-        chunk.length > 0 && chunk[chunk.length - 1] === 10;
-    }
-
-    if (!lastChunkEndedWithNewline && this.safeSize(filePath) > 0) {
-      count += 1;
-    }
-
-    return count;
-  }
-
-  private async countTotalLines(buildFiles: string[]): Promise<number> {
-    let total = 0;
-    for (const filePath of buildFiles) {
-      total += await this.countLines(filePath);
-    }
-    return total;
-  }
-
-  private logInsertProgress(
-    inserted: number,
-    total: number,
-    isFinal = false,
-  ): void {
-    const percent = total > 0 ? ((inserted / total) * 100).toFixed(2) : '0.00';
-    process.stdout.write(
-      `[load] ${inserted}/${total} (${percent}%)${isFinal ? ' done' : ''}\n`,
-    );
   }
 
   private async insertDocuments(documents: AddressDocument[]): Promise<void> {
@@ -1007,49 +904,49 @@ export class AddressLoaderService implements OnApplicationBootstrap {
     documents.forEach((doc, index) => {
       values.push(
         doc.id,
-        doc.x,
-        doc.y,
-        doc.display.ko,
-        doc.display.en,
-        doc.search.ko,
-        doc.search.en,
-        doc.road.ko.region1,
-        doc.road.ko.region2,
-        doc.road.ko.region3,
-        doc.road.ko.roadName,
-        doc.road.ko.buildingNo,
-        doc.road.ko.isUnderground,
-        doc.road.ko.full,
-        doc.road.en.region1,
-        doc.road.en.region2,
-        doc.road.en.region3,
-        doc.road.en.roadName,
-        doc.road.en.buildingNo,
-        doc.road.en.isUnderground,
-        doc.road.en.full,
-        doc.road.codes.roadCode,
-        doc.road.codes.localAreaSerial,
-        doc.road.codes.postalCode,
-        doc.road.building.nameKo,
-        doc.parcel.ko.region1,
-        doc.parcel.ko.region2,
-        doc.parcel.ko.region3,
-        doc.parcel.ko.region4,
-        doc.parcel.ko.isMountainLot,
-        doc.parcel.ko.mainNo,
-        doc.parcel.ko.subNo,
-        doc.parcel.ko.parcelNo,
-        doc.parcel.ko.full,
-        doc.parcel.en.region1,
-        doc.parcel.en.region2,
-        doc.parcel.en.region3,
-        doc.parcel.en.region4,
-        doc.parcel.en.isMountainLot,
-        doc.parcel.en.mainNo,
-        doc.parcel.en.subNo,
-        doc.parcel.en.parcelNo,
-        doc.parcel.en.full,
-        doc.parcel.codes.legalAreaCode,
+        doc.x ?? null,
+        doc.y ?? null,
+        doc.display.ko ?? null,
+        doc.display.en ?? null,
+        doc.search.ko ?? null,
+        doc.search.en ?? null,
+        doc.road.ko.region1 ?? null,
+        doc.road.ko.region2 ?? null,
+        doc.road.ko.region3 ?? null,
+        doc.road.ko.roadName ?? null,
+        doc.road.ko.buildingNo ?? null,
+        doc.road.ko.isUnderground ?? null,
+        doc.road.ko.full ?? null,
+        doc.road.en.region1 ?? null,
+        doc.road.en.region2 ?? null,
+        doc.road.en.region3 ?? null,
+        doc.road.en.roadName ?? null,
+        doc.road.en.buildingNo ?? null,
+        doc.road.en.isUnderground ?? null,
+        doc.road.en.full ?? null,
+        doc.road.codes.roadCode ?? null,
+        doc.road.codes.localAreaSerial ?? null,
+        doc.road.codes.postalCode ?? null,
+        doc.road.building.nameKo ?? null,
+        doc.parcel.ko.region1 ?? null,
+        doc.parcel.ko.region2 ?? null,
+        doc.parcel.ko.region3 ?? null,
+        doc.parcel.ko.region4 ?? null,
+        doc.parcel.ko.isMountainLot ?? null,
+        doc.parcel.ko.mainNo ?? null,
+        doc.parcel.ko.subNo ?? null,
+        doc.parcel.ko.parcelNo ?? null,
+        doc.parcel.ko.full ?? null,
+        doc.parcel.en.region1 ?? null,
+        doc.parcel.en.region2 ?? null,
+        doc.parcel.en.region3 ?? null,
+        doc.parcel.en.region4 ?? null,
+        doc.parcel.en.isMountainLot ?? null,
+        doc.parcel.en.mainNo ?? null,
+        doc.parcel.en.subNo ?? null,
+        doc.parcel.en.parcelNo ?? null,
+        doc.parcel.en.full ?? null,
+        doc.parcel.codes.legalAreaCode ?? null,
       );
 
       const base = index * colsPerRow;
