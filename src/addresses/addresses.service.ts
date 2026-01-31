@@ -4,7 +4,7 @@ import { Repository, SelectQueryBuilder } from 'typeorm';
 import type {
   AddressSearchLanguage,
   AddressSearchResult,
-} from './address.types';
+} from './addresses.types';
 import { SearchAddressesRequest } from './dto/search-addresses.dto';
 import { AddressEntity } from './entities/address.entity';
 

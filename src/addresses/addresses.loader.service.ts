@@ -9,7 +9,7 @@ import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import * as unzipper from 'unzipper';
 
-import type { AddressSearchResult } from './address.types';
+import type { AddressSearchResult } from './addresses.types';
 
 type Defaults = Readonly<{
   chunkSize: number;
@@ -73,9 +73,9 @@ type ZipDirectory = {
 };
 
 @Injectable()
-export class AddressLoaderService implements OnApplicationBootstrap {
+export class AddressesLoaderService implements OnApplicationBootstrap {
   private static readonly INSERT_COLS_PER_ROW = 44;
-  private readonly logger = new Logger(AddressLoaderService.name);
+  private readonly logger = new Logger(AddressesLoaderService.name);
 
   /**
    * Создаёт сервис загрузки адресов и подключается к источнику данных.
@@ -996,7 +996,7 @@ export class AddressLoaderService implements OnApplicationBootstrap {
   ): Promise<void> {
     if (documents.length === 0) return;
 
-    const colsPerRow = AddressLoaderService.INSERT_COLS_PER_ROW;
+    const colsPerRow = AddressesLoaderService.INSERT_COLS_PER_ROW;
 
     const values: Array<string | number | boolean | null> = [];
     const placeholders: string[] = [];

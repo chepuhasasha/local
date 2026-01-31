@@ -11,7 +11,7 @@ import type {
   AddressSearchLanguage,
   AddressSearchResult,
   AddressSearchText,
-} from '../address.types';
+} from '../addresses.types';
 
 export class SearchAddressesRequest {
   @ApiProperty({ description: 'Строка для поиска адреса.' })

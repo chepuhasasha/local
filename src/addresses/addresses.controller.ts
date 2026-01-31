@@ -1,7 +1,7 @@
 import { Body, Controller, Post } from '@nestjs/common';
 import { ApiBody, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { AddressesService } from './addresses.service';
-import type { AddressSearchResult } from './address.types';
+import type { AddressSearchResult } from './addresses.types';
 import {
   AddressSearchResultDto,
   SearchAddressesRequest,
