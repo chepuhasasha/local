@@ -1,19 +1,18 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, SelectQueryBuilder } from 'typeorm';
+
+import { AddressesRepository } from '@/modules/addresses/repositories/addresses.repository';
 import type {
   AddressSearchLanguage,
   AddressSearchResult,
-} from './addresses.types';
-import { SearchAddressesRequest } from './dto/search-addresses.dto';
-import { AddressEntity } from './entities/address.entity';
+} from '@/modules/addresses/types/addresses.types';
+import { SearchAddressesRequest } from '@/modules/addresses/dto/search-addresses.dto';
 
+/**
+ * Сервис бизнес-логики поиска адресов.
+ */
 @Injectable()
 export class AddressesService {
-  constructor(
-    @InjectRepository(AddressEntity)
-    private readonly addressRepository: Repository<AddressEntity>,
-  ) {}
+  constructor(private readonly addressesRepository: AddressesRepository) {}
 
   /**
    * Ищет адреса по строке пользователя и возвращает список совпадений.
@@ -31,13 +30,12 @@ export class AddressesService {
     const lang = this.normalizeLanguage(request.lang);
     const searchValue = `%${queryText.toLowerCase()}%`;
 
-    const queryBuilder = this.buildSearchQuery(
+    const addresses = await this.addressesRepository.search({
       lang,
       searchValue,
       limit,
       offset,
-    );
-    const addresses = await queryBuilder.getMany();
+    });
 
     return addresses.map((address) => ({
       id: address.id,
@@ -133,38 +131,5 @@ export class AddressesService {
       return lang;
     }
     return 'any';
-  }
-
-  /**
-   * Формирует запрос поиска по адресам через TypeORM.
-   */
-  private buildSearchQuery(
-    lang: AddressSearchLanguage,
-    searchValue: string,
-    limit: number,
-    offset: number,
-  ): SelectQueryBuilder<AddressEntity> {
-    const queryBuilder = this.addressRepository
-      .createQueryBuilder('address')
-      .orderBy('address.id', 'ASC')
-      .limit(limit)
-      .offset(offset);
-
-    if (lang === 'ko') {
-      return queryBuilder.where('address.searchKo ILIKE :search', {
-        search: searchValue,
-      });
-    }
-
-    if (lang === 'en') {
-      return queryBuilder.where('address.searchEn ILIKE :search', {
-        search: searchValue,
-      });
-    }
-
-    return queryBuilder.where(
-      '(address.searchKo ILIKE :search OR address.searchEn ILIKE :search)',
-      { search: searchValue },
-    );
   }
 }

@@ -1,4 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
+import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import type {
   AddressDisplay,
   AddressParcel,
@@ -11,13 +13,14 @@ import type {
   AddressSearchLanguage,
   AddressSearchResult,
   AddressSearchText,
-} from '../addresses.types';
+} from '@/modules/addresses/types/addresses.types';
 
 export class SearchAddressesRequest {
   @ApiProperty({
     description: 'Строка для поиска адреса.',
     default: 'Suyeong-gu Namcheon-dong 52-22',
   })
+  @IsString()
   query: string;
 
   @ApiProperty({
@@ -27,6 +30,11 @@ export class SearchAddressesRequest {
     minimum: 1,
     maximum: 50,
   })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(50)
   limit?: number;
 
   @ApiProperty({
@@ -35,6 +43,10 @@ export class SearchAddressesRequest {
     default: 0,
     minimum: 0,
   })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
   offset?: number;
 
   @ApiProperty({
@@ -42,6 +54,8 @@ export class SearchAddressesRequest {
     required: false,
     default: 'any',
   })
+  @IsOptional()
+  @IsIn(['ko', 'en', 'any'])
   lang?: AddressSearchLanguage;
 }
 

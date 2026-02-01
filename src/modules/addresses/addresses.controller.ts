@@ -1,17 +1,21 @@
 import { Body, Controller, Post } from '@nestjs/common';
 import { ApiBody, ApiOkResponse, ApiTags } from '@nestjs/swagger';
-import { AddressesService } from './addresses.service';
-import type { AddressSearchResult } from './addresses.types';
+
+import { AddressesService } from '@/modules/addresses/addresses.service';
+import type { AddressSearchResult } from '@/modules/addresses/types/addresses.types';
 import {
   AddressSearchResultDto,
   SearchAddressesRequest,
-} from './dto/search-addresses.dto';
+} from '@/modules/addresses/dto/search-addresses.dto';
 
 @ApiTags('addresses')
 @Controller('addresses')
 export class AddressesController {
   constructor(private readonly addressesService: AddressesService) {}
 
+  /**
+   * Выполняет поиск адресов по строке запроса.
+   */
   @ApiBody({ type: SearchAddressesRequest })
   @ApiOkResponse({ type: AddressSearchResultDto, isArray: true })
   @Post('search')

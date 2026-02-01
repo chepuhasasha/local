@@ -6,10 +6,12 @@ import * as path from 'node:path';
 import { TextDecoder } from 'node:util';
 
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { DataSource, QueryRunner } from 'typeorm';
 import * as unzipper from 'unzipper';
 
-import type { AddressSearchResult } from './addresses.types';
+import type { AppConfig } from '@/config/configuration';
+import type { AddressSearchResult } from '@/modules/addresses/types/addresses.types';
 
 type Defaults = Readonly<{
   chunkSize: number;
@@ -109,7 +111,10 @@ export class AddressesLoaderService {
 
   private readonly logger = new Logger(AddressesLoaderService.name);
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly configService: ConfigService,
+  ) {}
 
   /**
    * Запускает импорт адресов по текущему месяцу, используя advisory lock.
@@ -151,7 +156,8 @@ export class AddressesLoaderService {
    * Получает режим импорта из переменных окружения.
    */
   private getImportModeFromEnv(): ImportMode {
-    const raw = (process.env.ADDRESS_IMPORT_MODE ?? '').trim().toLowerCase();
+    const config = this.getAddressesImportConfig();
+    const raw = config?.mode ?? 'upsert';
     return raw === 'replace' ? 'replace' : 'upsert';
   }
 
@@ -159,39 +165,36 @@ export class AddressesLoaderService {
    * Возвращает значения параметров импорта из переменных окружения.
    */
   private getDefaultsFromEnv(): Defaults {
-    const asInt = (v: string | undefined, fallback: number) => {
-      const n = v ? Number(v) : NaN;
+    const config = this.getAddressesImportConfig();
+    const asInt = (v: number | null | undefined, fallback: number) => {
+      const n = v ?? NaN;
       return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
     };
 
-    const asBool = (v: string | undefined, fallback: boolean) => {
-      if (!v) return fallback;
-      const s = v.trim().toLowerCase();
-      if (s === '1' || s === 'true' || s === 'yes') return true;
-      if (s === '0' || s === 'false' || s === 'no') return false;
-      return fallback;
+    const asBool = (v: boolean | null | undefined, fallback: boolean) => {
+      return typeof v === 'boolean' ? v : fallback;
     };
 
     return {
-      chunkSize: asInt(process.env.ADDRESS_CHUNK_SIZE, DEFAULTS.chunkSize),
+      chunkSize: asInt(config?.chunkSize, DEFAULTS.chunkSize),
       downloadLogEveryMs: asInt(
-        process.env.ADDRESS_DOWNLOAD_LOG_MS,
+        config?.downloadLogEveryMs,
         DEFAULTS.downloadLogEveryMs,
       ),
       insertLogEveryMs: asInt(
-        process.env.ADDRESS_INSERT_LOG_MS,
+        config?.insertLogEveryMs,
         DEFAULTS.insertLogEveryMs,
       ),
       commitEveryBatches: asInt(
-        process.env.ADDRESS_COMMIT_EVERY_BATCHES,
+        config?.commitEveryBatches,
         DEFAULTS.commitEveryBatches,
       ),
       dropIndexesDuringImport: asBool(
-        process.env.ADDRESS_DROP_INDEXES,
+        config?.dropIndexes,
         DEFAULTS.dropIndexesDuringImport,
       ),
       countLinesForPercent: asBool(
-        process.env.ADDRESS_COUNT_LINES_FOR_PERCENT,
+        config?.countLinesForPercent,
         DEFAULTS.countLinesForPercent,
       ),
     };
@@ -768,13 +771,27 @@ export class AddressesLoaderService {
    * Возвращает месяц выгрузки адресов (YYYYMM).
    */
   private getMonthFromEnv(): string {
-    const raw = process.env.ADDRESS_DATA_MONTH;
+    const config = this.getAddressesImportConfig();
+    const raw = config?.month;
     if (raw && /^\d{6}$/.test(raw)) return raw;
 
     const d = new Date();
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
     return `${y}${m}`;
+  }
+
+  /**
+   * Возвращает конфигурацию импорта адресов из ConfigService.
+   */
+  private getAddressesImportConfig(): AppConfig['addressesImport'] | null {
+    const raw: unknown = this.configService.get('addressesImport', {
+      infer: true,
+    });
+    if (!raw || typeof raw !== 'object') {
+      return null;
+    }
+    return raw as AppConfig['addressesImport'];
   }
 
   /**

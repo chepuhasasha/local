@@ -10,17 +10,30 @@
 
 ## Переменные окружения
 
+Полный список переменных с комментариями находится в `.env.example`.
+
 Обязательные настройки подключения к базе данных:
 
+- `DB_TYPE` — тип базы данных (`postgres` или `sqlite`).
+
+Для PostgreSQL (`DB_TYPE=postgres`):
+
 - `POSTGRES_HOST` — хост PostgreSQL.
-- `POSTGRES_PORT` — порт PostgreSQL (по умолчанию `5432`).
+- `POSTGRES_PORT` — порт PostgreSQL.
 - `POSTGRES_USER` — пользователь.
 - `POSTGRES_PASSWORD` — пароль.
 - `POSTGRES_DB` — база данных.
 
+Для SQLite (`DB_TYPE=sqlite`):
+
+- `SQLITE_DB` — путь к файлу базы или `:memory:`.
+
 Дополнительные настройки:
 
+- `NODE_ENV` — окружение (`development`, `production`, `test`).
 - `PORT` — порт HTTP-сервера (по умолчанию `3000`).
+- `LOG_LEVEL` — уровень логов.
+- `DB_SYNC` — разрешить `synchronize` только в `development`.
 - `ADDRESS_DATA_MONTH` — месяц выгрузки адресов в формате `YYYYMM`.
   Если переменная не задана или неверная, используется текущий месяц.
 
@@ -84,6 +97,24 @@ npm run import:addresses
 ## Документация API
 
 Swagger UI доступен по адресу `http://localhost:3000/docs`.
+
+## Архитектура
+
+Общие правила структуры и зависимостей — в `docs/architecture.md`.
+
+## Тесты
+
+```bash
+npm test
+npm run test:e2e
+```
+
+## Линт и форматирование
+
+```bash
+npm run format
+npm run lint
+```
 
 ## API
 
