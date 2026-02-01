@@ -2,47 +2,12 @@ import { Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 
-type CheckStatus = 'ok' | 'fail' | 'skip';
-
-type Check = {
-  name: string;
-  status: CheckStatus;
-  details?: Record<string, unknown>;
-};
-
-export type LivenessResponse = {
-  status: 'ok';
-  timestamp: string;
-};
-
-export type InfoResponse = {
-  status: 'ok';
-  timestamp: string;
-  uptimeSeconds: number;
-  node: {
-    version: string;
-    pid: number;
-    platform: string;
-    arch: string;
-  };
-  memory: {
-    rss: number;
-    heapUsed: number;
-    heapTotal: number;
-    external: number;
-    arrayBuffers: number;
-  };
-  // Eсли HEALTH_VERBOSE=true
-  env?: string;
-  version?: string;
-  commitSha?: string;
-};
-
-export type ReadinessResponse = {
-  status: 'ok' | 'degraded' | 'fail';
-  timestamp: string;
-  checks: Check[];
-};
+import type {
+  HealthCheckDto,
+  InfoResponseDto,
+  LivenessResponseDto,
+  ReadinessResponseDto,
+} from './dto/health.dto';
 
 @Injectable()
 export class HealthService {
@@ -54,7 +19,7 @@ export class HealthService {
   /**
    * Возвращает ответ для liveness-проверки.
    */
-  getLiveness(): LivenessResponse {
+  getLiveness(): LivenessResponseDto {
     return {
       status: 'ok',
       timestamp: this.getTimestamp(),
@@ -64,10 +29,10 @@ export class HealthService {
   /**
    * Возвращает диагностическую информацию о рантайме.
    */
-  getInfo(): InfoResponse {
+  getInfo(): InfoResponseDto {
     const verbose = this.isVerbose();
 
-    const base: InfoResponse = {
+    const base: InfoResponseDto = {
       status: 'ok',
       timestamp: this.getTimestamp(),
       uptimeSeconds: Math.floor(process.uptime()),
@@ -88,7 +53,7 @@ export class HealthService {
   /**
    * Возвращает готовность сервиса с деталями проверок.
    */
-  async getReadiness(): Promise<ReadinessResponse> {
+  async getReadiness(): Promise<ReadinessResponseDto> {
     const checks = [await this.checkDatabase()];
     return this.buildReadiness(checks);
   }
@@ -96,7 +61,9 @@ export class HealthService {
   /**
    * Агрегирует итоговый статус на основе результатов проверок.
    */
-  private aggregateStatus(checks: Check[]): ReadinessResponse['status'] {
+  private aggregateStatus(
+    checks: HealthCheckDto[],
+  ): ReadinessResponseDto['status'] {
     if (checks.some((c) => c.status === 'fail')) return 'fail';
     if (checks.some((c) => c.status === 'skip')) return 'degraded';
     return 'ok';
@@ -121,7 +88,7 @@ export class HealthService {
   /**
    * Формирует информацию о рантайме Node.js.
    */
-  private getNodeInfo(): InfoResponse['node'] {
+  private getNodeInfo(): InfoResponseDto['node'] {
     return {
       version: process.version,
       pid: process.pid,
@@ -133,7 +100,7 @@ export class HealthService {
   /**
    * Формирует статистику использования памяти процесса.
    */
-  private getMemoryInfo(): InfoResponse['memory'] {
+  private getMemoryInfo(): InfoResponseDto['memory'] {
     const mem = process.memoryUsage();
     return {
       rss: mem.rss,
@@ -154,7 +121,7 @@ export class HealthService {
   /**
    * Выполняет проверку доступности базы данных.
    */
-  private async checkDatabase(): Promise<Check> {
+  private async checkDatabase(): Promise<HealthCheckDto> {
     if (!this.dataSource) {
       return {
         name: 'db',
@@ -178,7 +145,7 @@ export class HealthService {
   /**
    * Формирует итоговый ответ readiness.
    */
-  private buildReadiness(checks: Check[]): ReadinessResponse {
+  private buildReadiness(checks: HealthCheckDto[]): ReadinessResponseDto {
     return {
       status: this.aggregateStatus(checks),
       timestamp: this.getTimestamp(),

@@ -1,12 +1,12 @@
 import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 
+import { HealthService } from './health.service';
 import {
-  HealthService,
-  InfoResponse,
-  LivenessResponse,
-  ReadinessResponse,
-} from './health.service';
+  InfoResponseDto,
+  LivenessResponseDto,
+  ReadinessResponseDto,
+} from './dto/health.dto';
 
 @ApiTags('health')
 @Controller('health')
@@ -19,12 +19,8 @@ export class HealthController {
    */
   @Get()
   @ApiOperation({ summary: 'Liveness check (always 200 if process is up)' })
-  @ApiOkResponse({
-    schema: {
-      example: { status: 'ok', timestamp: '2026-02-01T00:00:00.000Z' },
-    },
-  })
-  getHealth(): LivenessResponse {
+  @ApiOkResponse({ type: LivenessResponseDto })
+  getHealth(): LivenessResponseDto {
     return this.health.getLiveness();
   }
 
@@ -34,29 +30,8 @@ export class HealthController {
    */
   @Get('info')
   @ApiOperation({ summary: 'Runtime info (uptime, memory, node)' })
-  @ApiOkResponse({
-    schema: {
-      example: {
-        status: 'ok',
-        timestamp: '2026-02-01T00:00:00.000Z',
-        uptimeSeconds: 1234,
-        node: {
-          version: 'v20.11.0',
-          pid: 12345,
-          platform: 'linux',
-          arch: 'x64',
-        },
-        memory: {
-          rss: 123,
-          heapUsed: 45,
-          heapTotal: 67,
-          external: 1,
-          arrayBuffers: 1,
-        },
-      },
-    },
-  })
-  getInfo(): InfoResponse {
+  @ApiOkResponse({ type: InfoResponseDto })
+  getInfo(): InfoResponseDto {
     return this.health.getInfo();
   }
 
@@ -66,16 +41,8 @@ export class HealthController {
    */
   @Get('ready')
   @ApiOperation({ summary: 'Readiness check (503 if not ready)' })
-  @ApiOkResponse({
-    schema: {
-      example: {
-        status: 'ok',
-        timestamp: '2026-02-01T00:00:00.000Z',
-        checks: [{ name: 'db', status: 'ok' }],
-      },
-    },
-  })
-  async getReady(): Promise<ReadinessResponse> {
+  @ApiOkResponse({ type: ReadinessResponseDto })
+  async getReady(): Promise<ReadinessResponseDto> {
     const res = await this.health.getReadiness();
 
     if (res.status !== 'ok') {
