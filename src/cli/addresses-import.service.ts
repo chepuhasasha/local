@@ -5,13 +5,14 @@ import * as https from 'node:https';
 import * as path from 'node:path';
 import { TextDecoder } from 'node:util';
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DataSource, QueryRunner } from 'typeorm';
 import * as unzipper from 'unzipper';
 
 import type { AppConfig } from '@/config/configuration';
 import type { AddressSearchResult } from '@/modules/addresses/types/addresses.types';
+import { AppLoggerService } from '@/infrastructure/observability/logger.service';
 
 type Defaults = Readonly<{
   chunkSize: number;
@@ -105,16 +106,17 @@ const TABLE_NAMES = {
 type AddressesTableName = (typeof TABLE_NAMES)[keyof typeof TABLE_NAMES];
 
 @Injectable()
-export class AddressesLoaderService {
+export class AddressesImportService {
   private static readonly INSERT_COLS_PER_ROW = 44;
   private static readonly IMPORT_LOCK_KEY = 9127341;
-
-  private readonly logger = new Logger(AddressesLoaderService.name);
 
   constructor(
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
-  ) {}
+    private readonly logger: AppLoggerService,
+  ) {
+    this.logger.setContext(AddressesImportService.name);
+  }
 
   /**
    * Запускает импорт адресов по текущему месяцу, используя advisory lock.
@@ -468,7 +470,7 @@ export class AddressesLoaderService {
   private async tryAcquireImportLock(qr: QueryRunner): Promise<boolean> {
     const rawRows: unknown = await qr.query(
       `SELECT pg_try_advisory_lock($1) AS locked`,
-      [AddressesLoaderService.IMPORT_LOCK_KEY],
+      [AddressesImportService.IMPORT_LOCK_KEY],
     );
 
     const rows: Array<{ locked: boolean }> = Array.isArray(rawRows)
@@ -488,7 +490,7 @@ export class AddressesLoaderService {
    */
   private async releaseImportLock(qr: QueryRunner): Promise<void> {
     await qr.query(`SELECT pg_advisory_unlock($1)`, [
-      AddressesLoaderService.IMPORT_LOCK_KEY,
+      AddressesImportService.IMPORT_LOCK_KEY,
     ]);
   }
 
@@ -1608,9 +1610,9 @@ export class AddressesLoaderService {
       },
     ] as const;
 
-    if (cols.length !== AddressesLoaderService.INSERT_COLS_PER_ROW) {
+    if (cols.length !== AddressesImportService.INSERT_COLS_PER_ROW) {
       throw new Error(
-        `Insert columns mismatch: got ${cols.length}, expected ${AddressesLoaderService.INSERT_COLS_PER_ROW}`,
+        `Insert columns mismatch: got ${cols.length}, expected ${AddressesImportService.INSERT_COLS_PER_ROW}`,
       );
     }
 

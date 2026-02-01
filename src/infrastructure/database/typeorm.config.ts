@@ -13,7 +13,6 @@ const buildOptions = (dbConfig: AppConfig['database']): DataSourceOptions => {
     entities: [AddressEntity],
     migrations: ['dist/infrastructure/database/migrations/*.{js,ts}'],
     migrationsTableName: 'migrations',
-    synchronize: dbConfig.synchronize,
   };
 
   return {

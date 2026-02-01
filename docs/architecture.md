@@ -78,5 +78,4 @@ test/
 
 ## База данных
 
-- `synchronize` разрешён только в `development` и только если `DB_SYNC=true`.
 - Миграции выполняются через единый `typeorm.config.ts`.

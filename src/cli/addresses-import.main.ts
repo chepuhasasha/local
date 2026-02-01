@@ -1,23 +1,26 @@
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 
-import { AddressesLoaderService } from '@/modules/addresses/addresses.loader.service';
-import { AppModule } from '@/app.module';
+import { AddressesImportModule } from './addresses-import.module';
+import { AddressesImportService } from './addresses-import.service';
 import { AppLoggerService } from '@/infrastructure/observability/logger.service';
 
 const logger = new Logger('AddressesImportCli');
 
 /**
- * Запускает импорт адресов в изолированном контексте приложения.
+ * Запускает импорт адресов в изолированном Nest-контексте без HTTP-сервера.
  */
 async function runImport(): Promise<void> {
-  const app = await NestFactory.createApplicationContext(AppModule, {
-    bufferLogs: true,
-  });
+  const app = await NestFactory.createApplicationContext(
+    AddressesImportModule,
+    {
+      bufferLogs: true,
+    },
+  );
   app.useLogger(app.get(AppLoggerService));
 
   try {
-    const loader = app.get(AddressesLoaderService);
+    const loader = app.get(AddressesImportService);
     await loader.runImport();
   } finally {
     await app.close();
@@ -25,7 +28,7 @@ async function runImport(): Promise<void> {
 }
 
 /**
- * Обрабатывает запуск CLI импорта и ошибочные сценарии.
+ * Обрабатывает запуск CLI импорта и ошибки выполнения.
  */
 async function bootstrap(): Promise<void> {
   try {

@@ -22,7 +22,6 @@ export const configuration = () => {
         password: env.POSTGRES_PASSWORD ?? null,
         database: env.POSTGRES_DB ?? null,
       },
-      synchronize: env.DB_SYNC === true && env.NODE_ENV === 'development',
     },
     addressesImport: {
       month: env.ADDRESS_DATA_MONTH ?? null,
