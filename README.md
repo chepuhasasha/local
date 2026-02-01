@@ -12,6 +12,10 @@
 
 Полный список переменных, сценарии использования и объяснение «на пальцах»
 собраны в документации: [`docs/environment.md`](docs/environment.md).
+Шаблоны `.env` для разных окружений лежат рядом с репозиторием:
+`.env.development.example`, `.env.test.example`, `.env.production.example`.
+
+Регламенты установки и запуска описаны в [`docs/deployment.md`](docs/deployment.md).
 
 ## Установка зависимостей
 
