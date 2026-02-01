@@ -119,6 +119,13 @@ export class AddressesImportService {
   }
 
   /**
+   * Логирует сообщение импорта с контекстом сервиса.
+   */
+  private log(message: string): void {
+    this.logger.log(message, AddressesImportService.name);
+  }
+
+  /**
    * Запускает импорт адресов по текущему месяцу, используя advisory lock.
    */
   async runImport(): Promise<void> {
@@ -131,7 +138,7 @@ export class AddressesImportService {
     try {
       hasLock = await this.tryAcquireImportLock(lockRunner);
       if (!hasLock) {
-        this.logger.log('[import] advisory lock not acquired -> skip');
+        this.log('[import] advisory lock not acquired -> skip');
         return;
       }
 
@@ -139,9 +146,7 @@ export class AddressesImportService {
 
       const state = await this.getImportState(month);
       if (state?.status === 'completed') {
-        this.logger.log(
-          `[import] import completed for ${month} -> loader skipped`,
-        );
+        this.log(`[import] import completed for ${month} -> loader skipped`);
         return;
       }
 
@@ -458,7 +463,7 @@ export class AddressesImportService {
       cnt = 0n;
     }
 
-    this.logger.log(
+    this.log(
       `[import] COUNT(*) done in ${Date.now() - t0}ms (cnt=${cnt.toString()})`,
     );
     return cnt;
@@ -553,9 +558,9 @@ export class AddressesImportService {
     const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'addr-'));
     const zipPath = path.join(tmpDir, `${month}.zip`);
 
-    this.logger.log(`[load] month=${month}`);
-    this.logger.log(`[load] temp_dir=${tmpDir}`);
-    this.logger.log(
+    this.log(`[load] month=${month}`);
+    this.log(`[load] temp_dir=${tmpDir}`);
+    this.log(
       `[load] mode=${importMode} chunk_size=${defaults.chunkSize} commit_every_batches=${defaults.commitEveryBatches}`,
     );
 
@@ -579,15 +584,13 @@ export class AddressesImportService {
       );
 
       if (defaults.dropIndexesDuringImport) {
-        this.logger.log('[load] dropping search indexes on shadow table...');
+        this.log('[load] dropping search indexes on shadow table...');
         await this.dropIndexes(targetTable);
       }
 
       // pass1 (необязательно): подсчёт строк для процента
       if (defaults.countLinesForPercent) {
-        this.logger.log(
-          '[load] counting total lines in build_*.txt (pass 1)...',
-        );
+        this.log('[load] counting total lines in build_*.txt (pass 1)...');
         const tCount0 = Date.now();
         const totalLines = await this.countTotalBuildLines(zipPath);
         expectedCount = totalLines;
@@ -599,12 +602,12 @@ export class AddressesImportService {
           expectedCount,
         });
 
-        this.logger.log(
+        this.log(
           `[load] total_lines=${totalLines} (pass 1 in ${Date.now() - tCount0}ms)`,
         );
       }
 
-      this.logger.log('[load] opening zip (pass 2)...');
+      this.log('[load] opening zip (pass 2)...');
       const zip = await this.openZip(zipPath);
 
       const roadEntry = this.pickRoadEntry(zip.files);
@@ -614,14 +617,12 @@ export class AddressesImportService {
       if (buildEntries.length === 0)
         throw new Error('build_*.txt not found in zip.');
 
-      this.logger.log(
-        `[load] files: road=1 build=${buildEntries.length} (pass 2)`,
-      );
+      this.log(`[load] files: road=1 build=${buildEntries.length} (pass 2)`);
 
       // Build road index (синхронный callback, без await на строку)
       const roadIndex = new Map<string, RoadIndexEntry['value']>();
 
-      this.logger.log('[load] building road index...');
+      this.log('[load] building road index...');
       const tRoad0 = Date.now();
       await this.forEachLineFromReadableSync(
         roadEntry.stream(),
@@ -636,7 +637,7 @@ export class AddressesImportService {
           if (!roadIndex.has(idx.key)) roadIndex.set(idx.key, idx.value);
         },
       );
-      this.logger.log(
+      this.log(
         `[load] road index size=${roadIndex.size} (${Date.now() - tRoad0}ms)`,
       );
 
@@ -668,7 +669,7 @@ export class AddressesImportService {
         const pct =
           total && total > 0 ? ((processed / total) * 100).toFixed(2) : null;
 
-        this.logger.log(
+        this.log(
           `[load] processed=${processed}` +
             (total ? `/${total} (${pct}%)` : '') +
             ` inserted=${inserted} speed=${speed}/s` +
@@ -686,7 +687,7 @@ export class AddressesImportService {
 
       // Основной цикл по build_*.txt: await только на flush (батч) и коммиты
       for (const entry of buildEntries) {
-        this.logger.log(`[load] processing ${entry.path}...`);
+        this.log(`[load] processing ${entry.path}...`);
 
         const res = await this.processBuildFileBatched({
           entry,
@@ -718,18 +719,18 @@ export class AddressesImportService {
 
       logProgress(true);
 
-      this.logger.log('[load] verifying exact count on shadow table...');
+      this.log('[load] verifying exact count on shadow table...');
       const after = await this.getAddressesCountExact(targetTable);
-      this.logger.log(`[load] shadow_count_after=${after.toString()}`);
+      this.log(`[load] shadow_count_after=${after.toString()}`);
 
       if (after <= 0n) {
         throw new Error('Shadow table is empty after import.');
       }
 
-      this.logger.log('[load] ensuring search indexes on shadow table...');
+      this.log('[load] ensuring search indexes on shadow table...');
       await this.ensureIndexes(targetTable);
 
-      this.logger.log('[load] swapping tables...');
+      this.log('[load] swapping tables...');
       await this.swapTables();
 
       await this.setImportState({
@@ -765,7 +766,7 @@ export class AddressesImportService {
         }
       }
       await fs.promises.rm(tmpDir, { recursive: true, force: true });
-      this.logger.log('[load] temp files removed');
+      this.log('[load] temp files removed');
     }
   }
 
@@ -962,7 +963,7 @@ export class AddressesImportService {
           let downloaded = 0;
           let lastLogAt = Date.now() - logEveryMs;
 
-          this.logger.log(
+          this.log(
             `[download] start total=${total > 0 ? this.humanBytes(total) : '?'}`,
           );
 
@@ -982,7 +983,7 @@ export class AddressesImportService {
                 : '?';
               const totalStr = hasTotal ? this.humanBytes(total) : '?';
 
-              this.logger.log(
+              this.log(
                 `[download] ${percent}% (${this.humanBytes(downloaded)}/${totalStr})`,
               );
             }
@@ -995,7 +996,7 @@ export class AddressesImportService {
               : '?';
             const totalStr = hasTotal ? this.humanBytes(total) : '?';
 
-            this.logger.log(
+            this.log(
               `[download] done ${percent}% (${this.humanBytes(downloaded)}/${totalStr})`,
             );
             resolve();
