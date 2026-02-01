@@ -3,76 +3,32 @@ import { z } from 'zod';
 /**
  * Схема переменных окружения приложения.
  */
-export const envSchema = z
-  .object({
-    NODE_ENV: z
-      .enum(['development', 'production', 'test'])
-      .default('development'),
-    PORT: z.coerce.number().int().min(1).max(65535).default(3000),
-    LOG_LEVEL: z
-      .enum(['log', 'error', 'warn', 'debug', 'verbose'])
-      .default('log'),
-    DB_TYPE: z.enum(['postgres', 'sqlite']).default('postgres'),
-    POSTGRES_HOST: z.string().optional(),
-    POSTGRES_PORT: z.coerce.number().int().min(1).max(65535).optional(),
-    POSTGRES_USER: z.string().optional(),
-    POSTGRES_PASSWORD: z.string().optional(),
-    POSTGRES_DB: z.string().optional(),
-    SQLITE_DB: z.string().optional(),
-    DB_SYNC: z.coerce.boolean().optional(),
-    ADDRESS_DATA_MONTH: z
-      .string()
-      .regex(/^\d{6}$/)
-      .optional(),
-    ADDRESS_IMPORT_MODE: z.enum(['upsert', 'replace']).optional(),
-    ADDRESS_CHUNK_SIZE: z.coerce.number().int().positive().optional(),
-    ADDRESS_DOWNLOAD_LOG_MS: z.coerce.number().int().positive().optional(),
-    ADDRESS_INSERT_LOG_MS: z.coerce.number().int().positive().optional(),
-    ADDRESS_COMMIT_EVERY_BATCHES: z.coerce.number().int().positive().optional(),
-    ADDRESS_DROP_INDEXES: z.coerce.boolean().optional(),
-    ADDRESS_COUNT_LINES_FOR_PERCENT: z.coerce.boolean().optional(),
-  })
-  .superRefine((env, ctx) => {
-    if (env.DB_TYPE === 'postgres') {
-      if (!env.POSTGRES_HOST) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'POSTGRES_HOST обязательный параметр.',
-        });
-      }
-      if (!env.POSTGRES_PORT) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'POSTGRES_PORT обязательный параметр.',
-        });
-      }
-      if (!env.POSTGRES_USER) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'POSTGRES_USER обязательный параметр.',
-        });
-      }
-      if (!env.POSTGRES_PASSWORD) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'POSTGRES_PASSWORD обязательный параметр.',
-        });
-      }
-      if (!env.POSTGRES_DB) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'POSTGRES_DB обязательный параметр.',
-        });
-      }
-    }
-
-    if (env.DB_TYPE === 'sqlite' && !env.SQLITE_DB) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'SQLITE_DB обязателен при DB_TYPE=sqlite.',
-      });
-    }
-  });
+export const envSchema = z.object({
+  NODE_ENV: z
+    .enum(['development', 'production', 'test'])
+    .default('development'),
+  PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+  LOG_LEVEL: z
+    .enum(['log', 'error', 'warn', 'debug', 'verbose'])
+    .default('log'),
+  POSTGRES_HOST: z.string().min(1),
+  POSTGRES_PORT: z.coerce.number().int().min(1).max(65535),
+  POSTGRES_USER: z.string().min(1),
+  POSTGRES_PASSWORD: z.string().min(1),
+  POSTGRES_DB: z.string().min(1),
+  DB_SYNC: z.coerce.boolean().optional(),
+  ADDRESS_DATA_MONTH: z
+    .string()
+    .regex(/^\d{6}$/)
+    .optional(),
+  ADDRESS_IMPORT_MODE: z.enum(['upsert', 'replace']).optional(),
+  ADDRESS_CHUNK_SIZE: z.coerce.number().int().positive().optional(),
+  ADDRESS_DOWNLOAD_LOG_MS: z.coerce.number().int().positive().optional(),
+  ADDRESS_INSERT_LOG_MS: z.coerce.number().int().positive().optional(),
+  ADDRESS_COMMIT_EVERY_BATCHES: z.coerce.number().int().positive().optional(),
+  ADDRESS_DROP_INDEXES: z.coerce.boolean().optional(),
+  ADDRESS_COUNT_LINES_FOR_PERCENT: z.coerce.boolean().optional(),
+});
 
 export type EnvSchema = z.infer<typeof envSchema>;
 

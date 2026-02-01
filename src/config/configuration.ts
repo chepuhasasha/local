@@ -15,16 +15,12 @@ export const configuration = () => {
       level: env.LOG_LEVEL,
     },
     database: {
-      type: env.DB_TYPE,
       postgres: {
         host: env.POSTGRES_HOST ?? null,
         port: env.POSTGRES_PORT ?? null,
         username: env.POSTGRES_USER ?? null,
         password: env.POSTGRES_PASSWORD ?? null,
         database: env.POSTGRES_DB ?? null,
-      },
-      sqlite: {
-        database: env.SQLITE_DB ?? null,
       },
       synchronize: env.DB_SYNC === true && env.NODE_ENV === 'development',
     },

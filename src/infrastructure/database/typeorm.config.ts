@@ -16,14 +16,6 @@ const buildOptions = (dbConfig: AppConfig['database']): DataSourceOptions => {
     synchronize: dbConfig.synchronize,
   };
 
-  if (dbConfig.type === 'sqlite') {
-    return {
-      type: 'sqlite',
-      database: dbConfig.sqlite.database ?? ':memory:',
-      ...baseOptions,
-    };
-  }
-
   return {
     type: 'postgres',
     host: dbConfig.postgres.host ?? undefined,
