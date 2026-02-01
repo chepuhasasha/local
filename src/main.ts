@@ -1,23 +1,7 @@
+import { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
-import { INestApplication, Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
-
-import { AddressesModule } from './addresses/addresses.module';
-import { DatabaseModule } from './database/database.module';
-
-function createRootModule() {
-  @Module({
-    imports: [
-      ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' }),
-      DatabaseModule,
-      AddressesModule,
-    ],
-  })
-  class RootModule {}
-
-  return RootModule;
-}
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { AppModule } from './app.module';
 
 function getPortFromEnv(): number {
   const raw = process.env.PORT;
@@ -40,7 +24,7 @@ function setupSwagger(app: INestApplication): void {
 }
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(createRootModule());
+  const app = await NestFactory.create(AppModule);
 
   app.enableShutdownHooks();
   setupSwagger(app);

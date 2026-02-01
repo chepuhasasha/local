@@ -5,7 +5,7 @@ import * as https from 'node:https';
 import * as path from 'node:path';
 import { TextDecoder } from 'node:util';
 
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { DataSource, QueryRunner } from 'typeorm';
 import * as unzipper from 'unzipper';
 
@@ -94,40 +94,70 @@ type ColDef = Readonly<{
   pick: (d: AddressSearchResult) => string | number | boolean | null;
 }>;
 
+const TABLE_NAMES = {
+  current: 'addresses',
+  next: 'addresses_next',
+  prev: 'addresses_prev',
+} as const;
+
+type AddressesTableName = (typeof TABLE_NAMES)[keyof typeof TABLE_NAMES];
+
 @Injectable()
-export class AddressesLoaderService implements OnApplicationBootstrap {
+export class AddressesLoaderService {
   private static readonly INSERT_COLS_PER_ROW = 44;
+  private static readonly IMPORT_LOCK_KEY = 9127341;
 
   private readonly logger = new Logger(AddressesLoaderService.name);
 
   constructor(private readonly dataSource: DataSource) {}
 
-  async onApplicationBootstrap(): Promise<void> {
-    this.logger.log('[bootstrap] start');
-
-    await this.ensureSchema(); // таблицы + extension
-    await this.ensureIndexes(); // индексы (на случай, если были удалены)
-
+  /**
+   * Запускает импорт адресов по текущему месяцу, используя advisory lock.
+   */
+  async runImport(): Promise<void> {
     const month = this.getMonthFromEnv();
-    const state = await this.getImportState(month);
+    const lockRunner = this.dataSource.createQueryRunner();
+    await lockRunner.connect();
 
-    if (state?.status === 'completed') {
-      this.logger.log(
-        `[bootstrap] import completed for ${month} -> loader skipped`,
-      );
-      return;
+    let hasLock = false;
+
+    try {
+      hasLock = await this.tryAcquireImportLock(lockRunner);
+      if (!hasLock) {
+        this.logger.log('[import] advisory lock not acquired -> skip');
+        return;
+      }
+
+      await this.ensureSchema();
+
+      const state = await this.getImportState(month);
+      if (state?.status === 'completed') {
+        this.logger.log(
+          `[import] import completed for ${month} -> loader skipped`,
+        );
+        return;
+      }
+
+      await this.loadAddresses(month);
+    } finally {
+      if (hasLock) {
+        await this.releaseImportLock(lockRunner);
+      }
+      await lockRunner.release();
     }
-
-    this.logger.log('[bootstrap] no completed import -> starting loader');
-    await this.loadAddresses(month);
-    this.logger.log('[bootstrap] loader finished');
   }
 
+  /**
+   * Получает режим импорта из переменных окружения.
+   */
   private getImportModeFromEnv(): ImportMode {
     const raw = (process.env.ADDRESS_IMPORT_MODE ?? '').trim().toLowerCase();
     return raw === 'replace' ? 'replace' : 'upsert';
   }
 
+  /**
+   * Возвращает значения параметров импорта из переменных окружения.
+   */
   private getDefaultsFromEnv(): Defaults {
     const asInt = (v: string | undefined, fallback: number) => {
       const n = v ? Number(v) : NaN;
@@ -167,55 +197,81 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     };
   }
 
+  /**
+   * Формирует SQL-описание колонок таблицы адресов.
+   */
+  private getAddressesColumnsSql(): string {
+    return `
+      id text PRIMARY KEY,
+      x double precision,
+      y double precision,
+      display_ko text,
+      display_en text,
+      search_ko text,
+      search_en text,
+      road_ko_region1 text,
+      road_ko_region2 text,
+      road_ko_region3 text,
+      road_ko_road_name text,
+      road_ko_building_no text,
+      road_ko_is_underground boolean,
+      road_ko_full text,
+      road_en_region1 text,
+      road_en_region2 text,
+      road_en_region3 text,
+      road_en_road_name text,
+      road_en_building_no text,
+      road_en_is_underground boolean,
+      road_en_full text,
+      road_code text,
+      road_local_area_serial text,
+      road_postal_code text,
+      road_building_name_ko text,
+      parcel_ko_region1 text,
+      parcel_ko_region2 text,
+      parcel_ko_region3 text,
+      parcel_ko_region4 text,
+      parcel_ko_is_mountain_lot boolean,
+      parcel_ko_main_no text,
+      parcel_ko_sub_no text,
+      parcel_ko_parcel_no text,
+      parcel_ko_full text,
+      parcel_en_region1 text,
+      parcel_en_region2 text,
+      parcel_en_region3 text,
+      parcel_en_region4 text,
+      parcel_en_is_mountain_lot boolean,
+      parcel_en_main_no text,
+      parcel_en_sub_no text,
+      parcel_en_parcel_no text,
+      parcel_en_full text,
+      parcel_legal_area_code text
+    `;
+  }
+
+  /**
+   * Создаёт таблицы и расширения, необходимые для импорта адресов.
+   */
   private async ensureSchema(): Promise<void> {
     await this.dataSource.query('CREATE EXTENSION IF NOT EXISTS pg_trgm');
 
+    const columns = this.getAddressesColumnsSql();
+
     await this.dataSource.query(`
-      CREATE TABLE IF NOT EXISTS addresses (
-        id text PRIMARY KEY,
-        x double precision,
-        y double precision,
-        display_ko text,
-        display_en text,
-        search_ko text,
-        search_en text,
-        road_ko_region1 text,
-        road_ko_region2 text,
-        road_ko_region3 text,
-        road_ko_road_name text,
-        road_ko_building_no text,
-        road_ko_is_underground boolean,
-        road_ko_full text,
-        road_en_region1 text,
-        road_en_region2 text,
-        road_en_region3 text,
-        road_en_road_name text,
-        road_en_building_no text,
-        road_en_is_underground boolean,
-        road_en_full text,
-        road_code text,
-        road_local_area_serial text,
-        road_postal_code text,
-        road_building_name_ko text,
-        parcel_ko_region1 text,
-        parcel_ko_region2 text,
-        parcel_ko_region3 text,
-        parcel_ko_region4 text,
-        parcel_ko_is_mountain_lot boolean,
-        parcel_ko_main_no text,
-        parcel_ko_sub_no text,
-        parcel_ko_parcel_no text,
-        parcel_ko_full text,
-        parcel_en_region1 text,
-        parcel_en_region2 text,
-        parcel_en_region3 text,
-        parcel_en_region4 text,
-        parcel_en_is_mountain_lot boolean,
-        parcel_en_main_no text,
-        parcel_en_sub_no text,
-        parcel_en_parcel_no text,
-        parcel_en_full text,
-        parcel_legal_area_code text
+      CREATE TABLE IF NOT EXISTS ${TABLE_NAMES.current} (
+        ${columns}
+      )
+    `);
+
+    await this.dataSource.query(`
+      CREATE TABLE IF NOT EXISTS ${TABLE_NAMES.next} (
+        ${columns}
+      )
+    `);
+
+    await this.dataSource.query(`
+      CREATE TABLE IF NOT EXISTS ${TABLE_NAMES.prev} (
+        ${columns}
       )
     `);
 
@@ -229,23 +285,47 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     `);
   }
 
-  private async ensureIndexes(): Promise<void> {
+  /**
+   * Создаёт индексы поиска для указанной таблицы адресов.
+   */
+  private async ensureIndexes(tableName: AddressesTableName): Promise<void> {
+    const { koIndex, enIndex } = this.getSearchIndexNames(tableName);
     await this.dataSource.query(`
-      CREATE INDEX IF NOT EXISTS addresses_search_ko_idx
-      ON addresses USING gin (search_ko gin_trgm_ops)
+      CREATE INDEX IF NOT EXISTS ${koIndex}
+      ON ${tableName} USING gin (search_ko gin_trgm_ops)
     `);
 
     await this.dataSource.query(`
-      CREATE INDEX IF NOT EXISTS addresses_search_en_idx
-      ON addresses USING gin (search_en gin_trgm_ops)
+      CREATE INDEX IF NOT EXISTS ${enIndex}
+      ON ${tableName} USING gin (search_en gin_trgm_ops)
     `);
   }
 
-  private async dropIndexes(): Promise<void> {
-    await this.dataSource.query(`DROP INDEX IF EXISTS addresses_search_ko_idx`);
-    await this.dataSource.query(`DROP INDEX IF EXISTS addresses_search_en_idx`);
+  /**
+   * Удаляет индексы поиска для указанной таблицы адресов.
+   */
+  private async dropIndexes(tableName: AddressesTableName): Promise<void> {
+    const { koIndex, enIndex } = this.getSearchIndexNames(tableName);
+    await this.dataSource.query(`DROP INDEX IF EXISTS ${koIndex}`);
+    await this.dataSource.query(`DROP INDEX IF EXISTS ${enIndex}`);
   }
 
+  /**
+   * Возвращает имена индексов поиска для указанной таблицы.
+   */
+  private getSearchIndexNames(tableName: AddressesTableName): {
+    koIndex: string;
+    enIndex: string;
+  } {
+    return {
+      koIndex: `${tableName}_search_ko_idx`,
+      enIndex: `${tableName}_search_en_idx`,
+    };
+  }
+
+  /**
+   * Загружает состояние импорта для конкретного месяца.
+   */
   private async getImportState(month: string): Promise<ImportState | null> {
     const rawRows: unknown = await this.dataSource.query(
       `
@@ -310,6 +390,9 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     };
   }
 
+  /**
+   * Сохраняет состояние импорта для конкретного месяца.
+   */
   private async setImportState(params: {
     month: string;
     status: string;
@@ -330,11 +413,16 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     );
   }
 
-  private async getAddressesCountExact(): Promise<bigint> {
+  /**
+   * Возвращает точное количество строк в указанной таблице адресов.
+   */
+  private async getAddressesCountExact(
+    tableName: AddressesTableName,
+  ): Promise<bigint> {
     const t0 = Date.now();
 
     const rawRows: unknown = await this.dataSource.query(
-      `SELECT COUNT(*)::bigint AS cnt FROM addresses`,
+      `SELECT COUNT(*)::bigint AS cnt FROM ${tableName}`,
     );
 
     const rows: Array<{ cnt: string | number | bigint }> = Array.isArray(
@@ -366,11 +454,88 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     }
 
     this.logger.log(
-      `[bootstrap] COUNT(*) done in ${Date.now() - t0}ms (cnt=${cnt.toString()})`,
+      `[import] COUNT(*) done in ${Date.now() - t0}ms (cnt=${cnt.toString()})`,
     );
     return cnt;
   }
 
+  /**
+   * Берёт advisory lock, чтобы импорт был единственным в кластере.
+   */
+  private async tryAcquireImportLock(qr: QueryRunner): Promise<boolean> {
+    const rawRows: unknown = await qr.query(
+      `SELECT pg_try_advisory_lock($1) AS locked`,
+      [AddressesLoaderService.IMPORT_LOCK_KEY],
+    );
+
+    const rows: Array<{ locked: boolean }> = Array.isArray(rawRows)
+      ? rawRows.flatMap((row) => {
+          if (!row || typeof row !== 'object') return [];
+          const record = row as Record<string, unknown>;
+          if (typeof record.locked !== 'boolean') return [];
+          return [{ locked: record.locked }];
+        })
+      : [];
+
+    return rows[0]?.locked === true;
+  }
+
+  /**
+   * Освобождает advisory lock после завершения импорта.
+   */
+  private async releaseImportLock(qr: QueryRunner): Promise<void> {
+    await qr.query(`SELECT pg_advisory_unlock($1)`, [
+      AddressesLoaderService.IMPORT_LOCK_KEY,
+    ]);
+  }
+
+  /**
+   * Готовит таблицу для следующего слепка адресов.
+   */
+  private async prepareNextTable(): Promise<void> {
+    await this.dataSource.query(`TRUNCATE TABLE ${TABLE_NAMES.next}`);
+  }
+
+  /**
+   * Переключает таблицы адресов на новый слепок атомарно.
+   */
+  private async swapTables(): Promise<void> {
+    const qr = this.dataSource.createQueryRunner();
+    await qr.connect();
+    await qr.startTransaction();
+
+    try {
+      await qr.query(`DROP TABLE IF EXISTS ${TABLE_NAMES.prev}`);
+      await qr.query(
+        `ALTER TABLE ${TABLE_NAMES.current} RENAME TO ${TABLE_NAMES.prev}`,
+      );
+      await qr.query(
+        `ALTER TABLE ${TABLE_NAMES.next} RENAME TO ${TABLE_NAMES.current}`,
+      );
+      await qr.query(
+        `ALTER INDEX IF EXISTS ${this.getSearchIndexNames(TABLE_NAMES.current).koIndex} RENAME TO ${this.getSearchIndexNames(TABLE_NAMES.prev).koIndex}`,
+      );
+      await qr.query(
+        `ALTER INDEX IF EXISTS ${this.getSearchIndexNames(TABLE_NAMES.current).enIndex} RENAME TO ${this.getSearchIndexNames(TABLE_NAMES.prev).enIndex}`,
+      );
+      await qr.query(
+        `ALTER INDEX IF EXISTS ${this.getSearchIndexNames(TABLE_NAMES.next).koIndex} RENAME TO ${this.getSearchIndexNames(TABLE_NAMES.current).koIndex}`,
+      );
+      await qr.query(
+        `ALTER INDEX IF EXISTS ${this.getSearchIndexNames(TABLE_NAMES.next).enIndex} RENAME TO ${this.getSearchIndexNames(TABLE_NAMES.current).enIndex}`,
+      );
+      await qr.commitTransaction();
+    } catch (error) {
+      await qr.rollbackTransaction();
+      throw error;
+    } finally {
+      await qr.release();
+    }
+  }
+
+  /**
+   * Выполняет полный импорт адресов в теневую таблицу и переключает её после успеха.
+   */
   private async loadAddresses(month: string): Promise<void> {
     const decoder = this.createDecoder();
     if (!decoder) throw new Error('Decoder not available.');
@@ -378,6 +543,7 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     const defaults = this.getDefaultsFromEnv();
     const importMode = this.getImportModeFromEnv();
     const url = this.buildZipUrl(month);
+    const targetTable = TABLE_NAMES.next;
 
     const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'addr-'));
     const zipPath = path.join(tmpDir, `${month}.zip`);
@@ -400,6 +566,7 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     let qr: QueryRunner | null = null;
 
     try {
+      await this.prepareNextTable();
       await this.downloadToFileWithProgress(
         url,
         zipPath,
@@ -407,10 +574,8 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
       );
 
       if (defaults.dropIndexesDuringImport) {
-        this.logger.log(
-          '[load] dropping search indexes (import optimization)...',
-        );
-        await this.dropIndexes();
+        this.logger.log('[load] dropping search indexes on shadow table...');
+        await this.dropIndexes(targetTable);
       }
 
       // pass1 (необязательно): подсчёт строк для процента
@@ -480,12 +645,6 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
       // Ускорение коммитов (по ситуации; если важнее надёжность, выключи через env и убери строку)
       await qr.query(`SET synchronous_commit = off`);
 
-      // replace mode: быстрее всего (truncate + insert without conflict)
-      if (importMode === 'replace') {
-        this.logger.log('[load] replace mode -> TRUNCATE addresses...');
-        await qr.query(`TRUNCATE TABLE addresses`);
-      }
-
       await qr.startTransaction();
 
       let processed = 0;
@@ -530,7 +689,7 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
           roadIndex,
           chunkSize: defaults.chunkSize,
           onBatch: async (batch) => {
-            await this.insertDocuments(batch, qr!, importMode);
+            await this.insertDocuments(batch, qr!, importMode, targetTable);
             inserted += batch.length;
 
             batchCountSinceCommit += 1;
@@ -554,9 +713,19 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
 
       logProgress(true);
 
-      this.logger.log('[load] verifying exact count after load...');
-      const after = await this.getAddressesCountExact();
-      this.logger.log(`[load] addresses_count_after=${after.toString()}`);
+      this.logger.log('[load] verifying exact count on shadow table...');
+      const after = await this.getAddressesCountExact(targetTable);
+      this.logger.log(`[load] shadow_count_after=${after.toString()}`);
+
+      if (after <= 0n) {
+        throw new Error('Shadow table is empty after import.');
+      }
+
+      this.logger.log('[load] ensuring search indexes on shadow table...');
+      await this.ensureIndexes(targetTable);
+
+      this.logger.log('[load] swapping tables...');
+      await this.swapTables();
 
       await this.setImportState({
         month,
@@ -564,10 +733,6 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
         finishedAt: new Date(),
         expectedCount,
       });
-
-      // Возвращаем индексы
-      this.logger.log('[load] ensuring search indexes...');
-      await this.ensureIndexes();
     } catch (error) {
       try {
         if (qr) {
@@ -599,6 +764,9 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     }
   }
 
+  /**
+   * Возвращает месяц выгрузки адресов (YYYYMM).
+   */
   private getMonthFromEnv(): string {
     const raw = process.env.ADDRESS_DATA_MONTH;
     if (raw && /^\d{6}$/.test(raw)) return raw;
@@ -609,6 +777,9 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     return `${y}${m}`;
   }
 
+  /**
+   * Формирует URL архива с данными адресов за указанный месяц.
+   */
   private buildZipUrl(monthYYYYMM: string): string {
     const year = monthYYYYMM.slice(0, 4);
     const params = new URLSearchParams({
@@ -627,6 +798,9 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     return `https://business.juso.go.kr/api/jst/download?${params.toString()}`;
   }
 
+  /**
+   * Подбирает подходящую кодировку для файлов выгрузки адресов.
+   */
   private createDecoder(): TextDecoder | null {
     const encodings = ['windows-949', 'cp949', 'euc-kr', 'utf-8'] as const;
     for (const enc of encodings) {
@@ -641,15 +815,24 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     return null;
   }
 
+  /**
+   * Возвращает HTTP или HTTPS клиент для указанного URL.
+   */
   private getHttpLib(urlObj: URL): typeof http | typeof https {
     return urlObj.protocol === 'https:' ? https : http;
   }
 
+  /**
+   * Вычисляет процент завершённости по текущему и общему объёму.
+   */
   private pct(done: number, total: number): number {
     if (!total || total <= 0) return 0;
     return Math.max(0, Math.min(100, (done / total) * 100));
   }
 
+  /**
+   * Преобразует количество байтов в человекочитаемую строку.
+   */
   private humanBytes(bytes: number): string {
     if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
     const units = ['B', 'KB', 'MB', 'GB', 'TB'] as const;
@@ -663,6 +846,9 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     return `${normalized} ${units[i]}`;
   }
 
+  /**
+   * Выполняет HEAD-запрос и возвращает длину содержимого.
+   */
   private headContentLength(url: string, maxRedirects = 5): Promise<number> {
     return new Promise((resolve) => {
       const urlObj = new URL(url);
@@ -701,6 +887,9 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     });
   }
 
+  /**
+   * Скачивает архив в файл и логирует прогресс.
+   */
   private async downloadToFileWithProgress(
     url: string,
     destPath: string,
@@ -801,6 +990,9 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     });
   }
 
+  /**
+   * Открывает zip-архив и возвращает список файлов.
+   */
   private async openZip(zipPath: string): Promise<ZipDirectory> {
     const api = unzipper as unknown as {
       Open: { file: (p: string) => Promise<ZipDirectory> };
@@ -808,6 +1000,9 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     return api.Open.file(zipPath);
   }
 
+  /**
+   * Выбирает файл со справочником дорог внутри архива.
+   */
   private pickRoadEntry(files: ZipEntry[]): ZipEntry | null {
     const candidates = files.filter((f) => {
       if (f.type !== 'File') return false;
@@ -818,6 +1013,9 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     return candidates.length > 0 ? candidates[0] : null;
   }
 
+  /**
+   * Возвращает список файлов с адресными строками, отсортированный по имени.
+   */
   private pickBuildEntries(files: ZipEntry[]): ZipEntry[] {
     return files
       .filter((f) => {
@@ -829,6 +1027,9 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
   }
 
   // Быстрый проход: callback синхронный, нет await на каждую строку
+  /**
+   * Проходит поток построчно без await на каждой строке.
+   */
   private async forEachLineFromReadableSync(
     readable: NodeJS.ReadableStream,
     decoder: TextDecoder,
@@ -856,6 +1057,9 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     if (last.length > 0) onLine(last);
   }
 
+  /**
+   * Считает количество строк в потоке.
+   */
   private async countLinesFromReadable(
     readable: NodeJS.ReadableStream,
   ): Promise<number> {
@@ -879,6 +1083,9 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     return count;
   }
 
+  /**
+   * Считает общее количество строк в файлах build_*.txt.
+   */
   private async countTotalBuildLines(zipPath: string): Promise<number> {
     const zip = await this.openZip(zipPath);
     const buildEntries = this.pickBuildEntries(zip.files);
@@ -890,6 +1097,9 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     return total;
   }
 
+  /**
+   * Нормализует значение к строке или null.
+   */
   private norm(value: unknown): string | null {
     if (value === null || value === undefined) return null;
 
@@ -911,6 +1121,9 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     return trimmed.length > 0 ? trimmed : null;
   }
 
+  /**
+   * Склеивает части строки, отбрасывая пустые элементы.
+   */
   private joinParts(parts: Array<string | null | undefined>): string {
     const normalized = parts
       .map((p) => (p ?? '').trim())
@@ -919,17 +1132,26 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     return normalized.join(' ');
   }
 
+  /**
+   * Формирует номер строения из основной и дополнительной частей.
+   */
   private makeNumber(main: string | null, sub: string | null): string | null {
     if (!main) return null;
     if (sub && sub !== '0') return `${main}-${sub}`;
     return main;
   }
 
+  /**
+   * Дополняет массив колонок до нужной длины.
+   */
   private padCols(cols: string[], minLen: number): string[] {
     if (cols.length >= minLen) return cols;
     return [...cols, ...Array.from({ length: minLen - cols.length }, () => '')];
   }
 
+  /**
+   * Строит индекс справочника дорог по строке.
+   */
   private indexRoadRow(cols: string[]): RoadIndexEntry | null {
     const row = this.padCols(cols, 20);
 
@@ -959,6 +1181,9 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     };
   }
 
+  /**
+   * Преобразует строку build_*.txt в объект адреса.
+   */
   private buildToDoc(
     cols: string[],
     roadIndex: Map<string, RoadIndexEntry['value']>,
@@ -1145,6 +1370,9 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     };
   }
 
+  /**
+   * Возвращает описание колонок для батчевой вставки.
+   */
   private buildInsertCols(): readonly ColDef[] {
     const cols: readonly ColDef[] = [
       { name: 'id', pgArray: 'text[]', pick: (d) => d.id },
@@ -1372,14 +1600,21 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
     return cols;
   }
 
-  private buildUnnestSql(cols: readonly ColDef[], mode: ImportMode): string {
+  /**
+   * Формирует SQL для вставки батча через UNNEST.
+   */
+  private buildUnnestSql(
+    cols: readonly ColDef[],
+    mode: ImportMode,
+    tableName: AddressesTableName,
+  ): string {
     const colNames = cols.map((c) => c.name).join(', ');
     const unnestArgs = cols.map((c, i) => `$${i + 1}::${c.pgArray}`).join(', ');
 
     if (mode === 'replace') {
       // В replace режиме table уже TRUNCATE, конфликтов быть не должно.
       return `
-        INSERT INTO addresses (${colNames})
+        INSERT INTO ${tableName} (${colNames})
         SELECT * FROM UNNEST(${unnestArgs})
       `;
     }
@@ -1390,13 +1625,16 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
       .join(', ');
 
     return `
-      INSERT INTO addresses (${colNames})
+      INSERT INTO ${tableName} (${colNames})
       SELECT * FROM UNNEST(${unnestArgs})
       ON CONFLICT (id) DO UPDATE SET ${updates}
     `;
   }
 
   // Батчевый разбор build файла: нет await на каждую строку.
+  /**
+   * Обрабатывает файл build_*.txt батчами и вызывает колбэки по мере обработки.
+   */
   private async processBuildFileBatched(params: {
     entry: ZipEntry;
     decoder: TextDecoder;
@@ -1467,15 +1705,19 @@ export class AddressesLoaderService implements OnApplicationBootstrap {
   }
 
   // Вставка батча через UNNEST (фиксированное число параметров: 44 массива)
+  /**
+   * Вставляет батч документов в указанную таблицу адресов.
+   */
   private async insertDocuments(
     documents: AddressSearchResult[],
     qr: QueryRunner,
     mode: ImportMode,
+    tableName: AddressesTableName,
   ): Promise<void> {
     if (documents.length === 0) return;
 
     const cols = this.buildInsertCols();
-    const sql = this.buildUnnestSql(cols, mode);
+    const sql = this.buildUnnestSql(cols, mode, tableName);
 
     const arrays = cols.map(
       () => [] as Array<string | number | boolean | null>,
