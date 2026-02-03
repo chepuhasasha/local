@@ -11,6 +11,32 @@
 - Авторизация и RBAC **не реализованы**.
 - Нет ролей, прав доступа и проверок на уровне контроллеров/сервисов.
 
+## Текущие границы доступа
+
+- Единственный защищённый эндпоинт — `GET /auth/me`.
+- Защита реализована через `AccessTokenGuard` (JWT + проверка сессии).
+- Все остальные эндпоинты сейчас публичны.
+
+## Как подключать защиту
+
+Используйте `AccessTokenGuard` на уровне контроллера или метода и извлекайте пользователя через `CurrentUser`.
+
+Пример:
+
+```ts
+@UseGuards(AccessTokenGuard)
+@Get('profile')
+getProfile(@CurrentUser() user: AuthenticatedUser) {
+  return this.usersService.getById(user.userId);
+}
+```
+
+Что делает Guard:
+
+- Проверяет `Authorization: Bearer <access_token>`.
+- Валидирует JWT и сессию.
+- Кладёт `{ userId, sessionId }` в `request.auth`.
+
 ## Точки расширения
 
 Если потребуется контроль доступа:

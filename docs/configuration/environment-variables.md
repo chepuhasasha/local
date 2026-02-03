@@ -20,17 +20,19 @@
 | `POSTGRES_USER` | string | да | — | Пользователь PostgreSQL. |
 | `POSTGRES_PASSWORD` | string | да | — | Пароль PostgreSQL. |
 | `POSTGRES_DB` | string | да | — | Имя базы данных. |
-| `AUTH_JWT_SECRET` | string | нет | `dev-secret-change-me` | Секрет для подписи access-токенов. |
+| `AUTH_JWT_SECRET` | string (min 16) | нет | `dev-secret-change-me` | Секрет для подписи access-токенов. |
 | `AUTH_ACCESS_TTL_SECONDS` | positive int | нет | `900` | TTL access-токена в секундах. |
 | `AUTH_REFRESH_TTL_SECONDS` | positive int | нет | `2592000` | TTL refresh-сессии в секундах. |
 | `AUTH_OTP_TTL_SECONDS` | positive int | нет | `600` | TTL одноразового кода в секундах. |
 | `AUTH_OTP_LENGTH` | `4..10` | нет | `6` | Длина одноразового кода. |
-| `MAILER_HOST` | string | нет | — | SMTP host (если задан — включается отправка email). |
+| `MAILER_HOST` | string | нет | — | SMTP host (отправка email включается вместе с `MAILER_PORT` и `MAILER_FROM`). |
 | `MAILER_PORT` | `1..65535` | нет | — | SMTP port. |
 | `MAILER_USER` | string | нет | — | SMTP user. |
 | `MAILER_PASSWORD` | string | нет | — | SMTP password. |
 | `MAILER_FROM` | string | нет | — | Адрес отправителя. |
 | `MAILER_SECURE` | boolean | нет | `false` | Использовать TLS при отправке. |
+
+Отправка email включается только если заданы `MAILER_HOST`, `MAILER_PORT` и `MAILER_FROM`. `MAILER_USER`/`MAILER_PASSWORD` нужны только если SMTP требует аутентификацию.
 
 ## Параметры импорта адресов
 

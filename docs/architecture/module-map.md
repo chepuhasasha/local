@@ -25,10 +25,13 @@ graph TD
   UsersModule --> UserEntity
 
   AuthModule --> TypeOrmModule
+  AuthModule --> UsersModule
   AuthModule --> AuthIdentityEntity
   AuthModule --> AuthOtpEntity
   AuthModule --> AuthSessionEntity
   AuthModule --> MailerModule
+
+  MailerModule --> ConfigModule
 
   DatabaseModule --> TypeOrmModule
   DatabaseModule --> ConfigModule
@@ -41,7 +44,7 @@ graph TD
 **AppModule**
 - Корневой модуль HTTP-приложения.
 - Подключает конфигурацию, логирование, БД и доменные модули.
-- Регистрирует `HttpExceptionFilter` как глобальный провайдер.
+- Регистрирует `HttpExceptionFilter` как провайдер (глобально подключается в `src/main.ts`).
 
 **AddressesModule**
 - Поиск адресов.
@@ -54,6 +57,7 @@ graph TD
 **AuthModule**
 - Идентификаторы входа, OTP и сессии.
 - Содержит сервис и репозитории.
+- Использует `UsersModule` и `MailerModule`.
 
 **MailerModule**
 - Отправка email (SMTP).

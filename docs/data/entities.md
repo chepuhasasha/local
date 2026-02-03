@@ -4,7 +4,9 @@
 
 # Данные: сущности
 
-Документ описывает сущности TypeORM, используемые приложением. В текущей версии это одна сущность `AddressEntity`, которая соответствует таблице `addresses`.
+Документ описывает сущности TypeORM, используемые приложением. В проекте есть адресная сущность `AddressEntity` (таблица `addresses`) и доменные сущности пользователей/аутентификации (`UserEntity`, `AuthIdentityEntity`, `AuthOtpEntity`, `AuthSessionEntity`).
+
+Адресные таблицы создаются процессом импорта, доменные таблицы — миграциями.
 
 ## AddressEntity
 
@@ -165,9 +167,13 @@
 
 ## Связи
 
-Связи между сущностями только через FK в auth-таблицах.
+Связи задаются через FK в auth-таблицах:
+
+- `auth_identity.user_id` → `users.id`
+- `auth_otp.identity_id` → `auth_identity.id`
+- `auth_session.user_id` → `users.id`
 
 ## Дополнительно
 
 API модель ответа для адресов описана в [Данные: модель данных API](data-model.md).
-Полный список доменных моделей и правил целостности описан в `data_model.md`.
+Полные определения схемы и ограничений — в `src/modules/**/entities/*.ts` и `src/infrastructure/database/migrations/*`.
