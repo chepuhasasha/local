@@ -4,7 +4,7 @@
 
 # Архитектура: жизненный цикл запроса
 
-Документ описывает путь HTTP-запроса внутри NestJS приложения, включая глобальные перехватчики и фильтры.
+Документ описывает путь HTTP-запроса внутри NestJS приложения, включая глобальные пайпы, фильтры и интерсепторы.
 
 ## Последовательность
 
@@ -41,6 +41,22 @@ sequenceDiagram
 
 ## Глобальные компоненты
 
-- **ValidationPipe**: `whitelist`, `transform`, `forbidNonWhitelisted`.
-- **HttpExceptionFilter**: единый JSON-ответ и логирование.
-- **RequestIdInterceptor**: заголовок `x-request-id` и AsyncLocalStorage контекст.
+**RequestIdInterceptor**
+- Читает заголовок `x-request-id`, либо генерирует новый UUID.
+- Добавляет `x-request-id` в ответ.
+- Хранит идентификатор в `AsyncLocalStorage`, чтобы он попадал в логи.
+
+**ValidationPipe**
+- `whitelist: true` — удаляет неизвестные поля.
+- `forbidNonWhitelisted: true` — ошибка при наличии лишних полей.
+- `transform: true` — приводит типы (например, `limit` к числу).
+
+**HttpExceptionFilter**
+- Приводит ошибки к единому формату JSON.
+- Логирует 4xx как `warn`, 5xx как `error`.
+
+## Где настраивается
+
+Глобальные пайпы/фильтры/интерсепторы подключаются в `src/main.ts` в функции `setupApp`.
+
+Формат ошибок и контракт API описаны в [API: обзор](../api/overview.md).

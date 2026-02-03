@@ -4,9 +4,9 @@
 
 # Архитектура: карта модулей
 
-Документ фиксирует NestJS модули, их назначения и зависимости между ними.
+Документ фиксирует NestJS модули и их зависимости. В проекте есть два контекста: HTTP приложение и CLI импорт.
 
-## Карта модулей
+## HTTP приложение
 
 ```mermaid
 graph TD
@@ -25,32 +25,43 @@ graph TD
   LoggerModule --> ConfigModule
 ```
 
-## Модули и назначение
+### Модули и назначение
 
-### AppModule
+**AppModule**
+- Корневой модуль HTTP-приложения.
+- Подключает конфигурацию, логирование, БД и доменные модули.
+- Регистрирует `HttpExceptionFilter` как глобальный провайдер.
 
-- **Назначение:** корневой модуль приложения.
-- **Импорты:** `ConfigModule`, `LoggerModule`, `DatabaseModule`, `AddressesModule`, `HealthModule`.
-- **Провайдеры:** `HttpExceptionFilter` как глобальный фильтр.
+**AddressesModule**
+- Поиск адресов.
+- Содержит контроллер, сервис и репозиторий.
 
-### AddressesModule
+**HealthModule**
+- Health endpoints (`/health`, `/health/info`, `/health/ready`).
 
-- **Назначение:** поиск адресов.
-- **Контроллеры:** `AddressesController`.
-- **Провайдеры:** `AddressesService`, `AddressesRepository`.
-- **Импорты:** `TypeOrmModule.forFeature([AddressEntity])`.
+**DatabaseModule**
+- Глобальный доступ к TypeORM `DataSource`.
 
-### HealthModule
+**LoggerModule**
+- Единый логгер `AppLoggerService`.
 
-- **Назначение:** liveness/info/readiness проверки.
-- **Контроллеры:** `HealthController`.
-- **Провайдеры:** `HealthService`.
+## CLI импорт адресов
 
-### DatabaseModule
+```mermaid
+graph TD
+  AddressesImportModule --> ConfigModule
+  AddressesImportModule --> LoggerModule
+  AddressesImportModule --> DatabaseModule
+  AddressesImportModule --> AddressesImportService
 
-- **Назначение:** глобальный доступ к `DataSource` через TypeORM.
-- **Особенности:** конфигурация берётся из `ConfigService`.
+  DatabaseModule --> TypeOrmModule
+  LoggerModule --> ConfigModule
+```
 
-### LoggerModule
+### Особенности CLI
 
-- **Назначение:** глобальный логгер, использующий `ConsoleLogger` и request-id.
+- Поднимается через `createApplicationContext`, без HTTP сервера.
+- Использует те же `ConfigModule`, `LoggerModule` и `DatabaseModule`.
+- Единственный бизнес-провайдер — `AddressesImportService`.
+
+Подробнее см. [Данные: импорт адресов](../data/addresses-import.md).

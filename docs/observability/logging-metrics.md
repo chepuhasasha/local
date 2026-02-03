@@ -8,17 +8,39 @@
 
 ## Логирование
 
-- Используется `ConsoleLogger` с кастомизацией уровней логов.
-- Уровни логов определяются переменной `LOG_LEVEL`.
-- В лог-сообщения добавляется `x-request-id`, если он есть в контексте.
+Используется `AppLoggerService` (обёртка над `ConsoleLogger`).
+
+### Уровни логов
+
+`LOG_LEVEL` управляет набором уровней:
+
+| `LOG_LEVEL` | Включённые уровни |
+| --- | --- |
+| `error` | `error` |
+| `warn` | `error`, `warn` |
+| `log` | `error`, `warn`, `log` |
+| `debug` | `error`, `warn`, `log`, `debug` |
+| `verbose` | `error`, `warn`, `log`, `debug`, `verbose` |
+
+### Request ID
+
+Если запрос содержит заголовок `x-request-id`, он попадёт в логи. Если нет — идентификатор будет сгенерирован автоматически.
+
+Пример формата:
+
+```
+[request_id=123e4567-e89b-12d3-a456-426614174000] message
+```
 
 ## Метрики и трассировка
 
 - Метрики и tracing не реализованы.
-- Единственные health endpoints находятся в `HealthModule`.
+- Единственные системные проверки — health endpoints.
 
 ## Health endpoints
 
 - `/health` — liveness.
-- `/health/info` — информация о рантайме (расширенный ответ при `HEALTH_VERBOSE=true`).
-- `/health/ready` — readiness и проверка БД.
+- `/health/info` — диагностическая информация.
+- `/health/ready` — readiness.
+
+Контракты см. в [API: эндпоинты](../api/endpoints.md).

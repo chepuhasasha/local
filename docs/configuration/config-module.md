@@ -6,17 +6,65 @@
 
 Документ описывает, как сервис загружает и валидирует конфигурацию через `@nestjs/config`.
 
-## Как работает загрузка
+## Где подключается
 
-- `ConfigModule.forRoot` подключается в `AppModule` и в CLI модуле импорта.
-- `envFilePath` указывает на `.env` в корне репозитория.
-- Валидация выполняется функцией `validateEnv`, которая использует `zod` схему.
-- Дополнительные конфигурации формируются функцией `configuration()` и доступны как `app`, `logger`, `database`, `addressesImport`.
+- **HTTP приложение**: `AppModule`.
+- **CLI импорт адресов**: `AddressesImportModule`.
 
-## Доступ к настройкам
+В обоих случаях используется один и тот же механизм загрузки.
 
-Примеры использования в коде:
+## Порядок загрузки
 
-- `ConfigService.get('app', { infer: true })` — чтение `app.port`.
-- `ConfigService.get('database', { infer: true })` — параметры PostgreSQL.
-- `ConfigService.get('logger', { infer: true })` — уровень логов.
+1) Читается файл `.env` из корня репозитория (`envFilePath: '.env'`).
+2) Значения валидируются функцией `validateEnv` (Zod-схема в `env.schema.ts`).
+3) Формируется объект конфигурации `configuration()`.
+4) `ConfigService` предоставляет доступ к сгруппированным настройкам.
+
+Если валидация не проходит, приложение падает при старте с ошибкой `Ошибка валидации env`.
+
+## Структура конфигурации
+
+`configuration()` формирует следующие группы:
+
+```ts
+{
+  app: {
+    env: 'development' | 'production' | 'test',
+    port: number,
+  },
+  logger: {
+    level: 'log' | 'error' | 'warn' | 'debug' | 'verbose',
+  },
+  database: {
+    postgres: {
+      host: string,
+      port: number,
+      username: string,
+      password: string,
+      database: string,
+    }
+  },
+  addressesImport: {
+    month: string | null,
+    mode: 'upsert' | 'replace' | null,
+    chunkSize: number | null,
+    downloadLogEveryMs: number | null,
+    insertLogEveryMs: number | null,
+    commitEveryBatches: number | null,
+    dropIndexes: boolean | null,
+    countLinesForPercent: boolean | null,
+  }
+}
+```
+
+## Примеры доступа
+
+- `ConfigService.get('app', { infer: true })` → `app.port`.
+- `ConfigService.get('database', { infer: true })` → параметры PostgreSQL.
+- `ConfigService.get('addressesImport', { infer: true })` → настройки импорта.
+
+## Как добавить новую настройку
+
+1) Добавьте переменную в `env.schema.ts`.
+2) Прокиньте её в `configuration()`.
+3) Обновите документацию в [Конфигурация: переменные окружения](environment-variables.md).

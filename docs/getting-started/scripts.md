@@ -6,22 +6,45 @@
 
 Список npm-скриптов и их назначение. Команды берутся из `package.json`.
 
-## Основные команды
+## Разработка
 
-| Скрипт | Назначение |
-| --- | --- |
-| `npm run start` | Запуск NestJS приложения. |
-| `npm run start:dev` | Запуск в режиме watch. |
-| `npm run start:debug` | Запуск в режиме debug + watch. |
-| `npm run start:prod` | Запуск собранного приложения из `dist`. |
-| `npm run build` | Сборка TypeScript в `dist`. |
-| `npm run format` | Форматирование `src/**/*.ts` и `test/**/*.ts`. |
-| `npm run lint` | Линтинг `src` и `test`. |
-| `npm test` | Unit-тесты. |
-| `npm run test:e2e` | E2E-тесты. |
-| `npm run test:watch` | Jest watch режим. |
-| `npm run test:cov` | Покрытие тестами. |
-| `npm run test:debug` | Запуск Jest с Node Inspector. |
-| `npm run import:addresses:dev` | Локальный импорт адресов (ts-node). |
-| `npm run import:addresses` | Импорт адресов в production-сборке. |
+| Скрипт | Назначение | Когда использовать |
+| --- | --- | --- |
+| `npm run start` | Запуск NestJS приложения. | Базовый запуск без watch. |
+| `npm run start:dev` | Запуск в режиме watch. | Локальная разработка. |
+| `npm run start:debug` | Запуск в режиме debug + watch. | Отладка через Node Inspector. |
 
+## Сборка и продакшн
+
+| Скрипт | Назначение | Когда использовать |
+| --- | --- | --- |
+| `npm run build` | Сборка TypeScript в `dist`. | Перед запуском в production. |
+| `npm run start:prod` | Запуск собранного приложения из `dist`. | Production или окружения без ts-node. |
+
+## Импорт адресов
+
+| Скрипт | Назначение | Когда использовать |
+| --- | --- | --- |
+| `npm run import:addresses:dev` | Импорт адресов через `ts-node`. | Локальная разработка. |
+| `npm run import:addresses` | Импорт адресов из `dist/`. | После `npm run build`. |
+
+Подробности об импорте см. в [Данные: импорт адресов](../data/addresses-import.md).
+
+## Качество кода
+
+| Скрипт | Назначение | Когда использовать |
+| --- | --- | --- |
+| `npm run format` | Форматирование `src/**/*.ts` и `test/**/*.ts`. | Перед коммитом или при массовых правках. |
+| `npm run lint` | Линтинг `src` и `test`. | Перед PR и релизом. |
+
+## Тесты
+
+| Скрипт | Назначение | Когда использовать |
+| --- | --- | --- |
+| `npm test` | Unit-тесты (`test/jest-unit.json`). | Регулярно в процессе разработки. |
+| `npm run test:e2e` | E2E-тесты (`test/jest-e2e.json`). | При изменениях API или интеграций. |
+| `npm run test:watch` | Jest watch режим. | Локальная разработка. |
+| `npm run test:cov` | Покрытие тестами. | Перед релизом или CI. |
+| `npm run test:debug` | Запуск Jest с Node Inspector. | Отладка тестов. |
+
+Подробности см. в [Тестирование](../testing/testing-strategy.md).
