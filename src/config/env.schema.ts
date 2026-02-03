@@ -1,5 +1,24 @@
 import { z } from 'zod';
 
+const emptyToUndefined = (value: unknown): unknown => {
+  if (value === '' || value === null || value === undefined) {
+    return undefined;
+  }
+  return value;
+};
+
+const optionalString = () =>
+  z.preprocess(emptyToUndefined, z.string().min(1).optional());
+
+const optionalNumber = (min: number, max: number) =>
+  z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().min(min).max(max).optional(),
+  );
+
+const optionalBoolean = () =>
+  z.preprocess(emptyToUndefined, z.coerce.boolean().optional());
+
 /**
  * Схема переменных окружения приложения.
  */
@@ -16,6 +35,21 @@ export const envSchema = z.object({
   POSTGRES_USER: z.string().min(1),
   POSTGRES_PASSWORD: z.string().min(1),
   POSTGRES_DB: z.string().min(1),
+  AUTH_JWT_SECRET: z.string().min(16).default('dev-secret-change-me'),
+  AUTH_ACCESS_TTL_SECONDS: z.coerce.number().int().positive().default(900),
+  AUTH_REFRESH_TTL_SECONDS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(60 * 60 * 24 * 30),
+  AUTH_OTP_TTL_SECONDS: z.coerce.number().int().positive().default(600),
+  AUTH_OTP_LENGTH: z.coerce.number().int().min(4).max(10).default(6),
+  MAILER_HOST: optionalString(),
+  MAILER_PORT: optionalNumber(1, 65535),
+  MAILER_USER: optionalString(),
+  MAILER_PASSWORD: optionalString(),
+  MAILER_FROM: optionalString(),
+  MAILER_SECURE: optionalBoolean(),
   ADDRESS_DATA_MONTH: z
     .string()
     .regex(/^\d{6}$/)

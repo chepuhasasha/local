@@ -6,6 +6,8 @@ import { DatabaseModule } from '@/infrastructure/database/database.module';
 import { LoggerModule } from '@/infrastructure/observability/logger.module';
 import { AddressesModule } from '@/modules/addresses/addresses.module';
 import { HealthModule } from '@/modules/health/health.module';
+import { UsersModule } from '@/modules/users/users.module';
+import { AuthModule } from '@/modules/auth/auth.module';
 import { HttpExceptionFilter } from '@/common/filters/http-exception.filter';
 
 @Module({
@@ -19,6 +21,8 @@ import { HttpExceptionFilter } from '@/common/filters/http-exception.filter';
     LoggerModule,
     DatabaseModule,
     AddressesModule,
+    UsersModule,
+    AuthModule,
     HealthModule,
   ],
   providers: [HttpExceptionFilter],

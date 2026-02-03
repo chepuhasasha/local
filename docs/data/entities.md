@@ -96,10 +96,78 @@
 | --- | --- | --- | --- | --- |
 | `parcelLegalAreaCode` | `parcel_legal_area_code` | `text` | да | Код административного района. |
 
+## UserEntity
+
+**Таблица:** `users`.
+
+**Назначение:** хранение бизнес-профиля пользователя.
+
+### Базовые поля
+
+| Поле в Entity | Колонка | Тип | Nullable | Описание |
+| --- | --- | --- | --- | --- |
+| `id` | `id` | `bigint` | нет | Идентификатор пользователя. |
+| `display_name` | `display_name` | `text` | да | Отображаемое имя пользователя. |
+| `terms_accepted_at` | `terms_accepted_at` | `timestamptz` | да | Дата принятия условий. |
+| `privacy_accepted_at` | `privacy_accepted_at` | `timestamptz` | да | Дата принятия политики приватности. |
+| `marketing_opt_in` | `marketing_opt_in` | `boolean` | нет | Согласие на маркетинговые рассылки. |
+| `created_at` | `created_at` | `timestamptz` | нет | Дата создания. |
+| `updated_at` | `updated_at` | `timestamptz` | нет | Дата обновления. |
+| `archived_at` | `archived_at` | `timestamptz` | да | Дата архивации. |
+
+## AuthIdentityEntity
+
+**Таблица:** `auth_identity`.
+
+**Назначение:** идентификаторы входа пользователя (email).
+
+| Поле в Entity | Колонка | Тип | Nullable | Описание |
+| --- | --- | --- | --- | --- |
+| `id` | `id` | `bigint` | нет | Идентификатор identity. |
+| `user_id` | `user_id` | `bigint` | нет | Ссылка на пользователя. |
+| `provider` | `provider` | `auth_provider` | нет | Провайдер (`EMAIL`). |
+| `provider_user_id` | `provider_user_id` | `text` | нет | Email пользователя. |
+| `is_verified` | `is_verified` | `boolean` | нет | Флаг верификации. |
+| `verified_at` | `verified_at` | `timestamptz` | да | Дата верификации. |
+| `created_at` | `created_at` | `timestamptz` | нет | Дата создания. |
+| `updated_at` | `updated_at` | `timestamptz` | нет | Дата обновления. |
+| `archived_at` | `archived_at` | `timestamptz` | да | Дата архивации. |
+
+## AuthOtpEntity
+
+**Таблица:** `auth_otp`.
+
+**Назначение:** одноразовые коды для подтверждения.
+
+| Поле в Entity | Колонка | Тип | Nullable | Описание |
+| --- | --- | --- | --- | --- |
+| `id` | `id` | `bigint` | нет | Идентификатор OTP. |
+| `identity_id` | `identity_id` | `bigint` | нет | Ссылка на identity. |
+| `code_hash` | `code_hash` | `text` | нет | Хэш кода. |
+| `expires_at` | `expires_at` | `timestamptz` | нет | Срок действия. |
+| `consumed_at` | `consumed_at` | `timestamptz` | да | Время использования. |
+| `created_at` | `created_at` | `timestamptz` | нет | Дата создания. |
+
+## AuthSessionEntity
+
+**Таблица:** `auth_session`.
+
+**Назначение:** refresh-сессии пользователя.
+
+| Поле в Entity | Колонка | Тип | Nullable | Описание |
+| --- | --- | --- | --- | --- |
+| `id` | `id` | `bigint` | нет | Идентификатор сессии. |
+| `user_id` | `user_id` | `bigint` | нет | Ссылка на пользователя. |
+| `refresh_hash` | `refresh_hash` | `text` | нет | Хэш refresh-токена. |
+| `created_at` | `created_at` | `timestamptz` | нет | Дата создания. |
+| `last_seen_at` | `last_seen_at` | `timestamptz` | да | Последняя активность. |
+| `revoked_at` | `revoked_at` | `timestamptz` | да | Дата отзыва. |
+
 ## Связи
 
-Связей между сущностями нет. Данные читаются из одной таблицы `addresses`.
+Связи между сущностями только через FK в auth-таблицах.
 
 ## Дополнительно
 
-API модель ответа описана в [Данные: модель данных API](data-model.md).
+API модель ответа для адресов описана в [Данные: модель данных API](data-model.md).
+Полный список доменных моделей и правил целостности описан в `data_model.md`.

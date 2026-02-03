@@ -14,10 +14,21 @@ graph TD
   AppModule --> LoggerModule
   AppModule --> DatabaseModule
   AppModule --> AddressesModule
+  AppModule --> UsersModule
+  AppModule --> AuthModule
   AppModule --> HealthModule
 
   AddressesModule --> TypeOrmModule
   AddressesModule --> AddressEntity
+
+  UsersModule --> TypeOrmModule
+  UsersModule --> UserEntity
+
+  AuthModule --> TypeOrmModule
+  AuthModule --> AuthIdentityEntity
+  AuthModule --> AuthOtpEntity
+  AuthModule --> AuthSessionEntity
+  AuthModule --> MailerModule
 
   DatabaseModule --> TypeOrmModule
   DatabaseModule --> ConfigModule
@@ -35,6 +46,18 @@ graph TD
 **AddressesModule**
 - Поиск адресов.
 - Содержит контроллер, сервис и репозиторий.
+
+**UsersModule**
+- Пользователи и их профильные данные.
+- Содержит контроллер, сервис и репозиторий.
+
+**AuthModule**
+- Идентификаторы входа, OTP и сессии.
+- Содержит сервис и репозитории.
+
+**MailerModule**
+- Отправка email (SMTP).
+- Используется модулем Auth.
 
 **HealthModule**
 - Health endpoints (`/health`, `/health/info`, `/health/ready`).

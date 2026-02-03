@@ -21,6 +21,13 @@
 - `addresses_prev` — предыдущий слепок после переключения.
 - `address_import_state` — состояние импорта по месяцам.
 
+Доменные таблицы, создаваемые миграциями:
+
+- `users` — бизнес-профили пользователей.
+- `auth_identity` — идентификаторы входа (email).
+- `auth_otp` — одноразовые коды.
+- `auth_session` — refresh-сессии.
+
 `address_import_state` хранит:
 
 - `month` — `YYYYMM`.

@@ -20,6 +20,7 @@ function setupSwagger(app: INestApplication): void {
     .setTitle('Address API')
     .setDescription('API для поиска адресов')
     .setVersion('1.0.0')
+    .addBearerAuth()
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

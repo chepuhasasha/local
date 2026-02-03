@@ -111,6 +111,195 @@ curl -X POST http://localhost:3000/addresses/search \
 ]
 ```
 
+## Users
+
+### POST `/users`
+
+- **Auth:** отсутствует.
+- **Назначение:** создание бизнес-пользователя.
+
+**Request DTO:** `CreateUserRequest`
+
+| Поле | Тип | Валидация | По умолчанию |
+| --- | --- | --- | --- |
+| `display_name` | `string \| null` | optional | `null` |
+| `marketing_opt_in` | `boolean` | optional | `false` |
+
+**Response:** объект `User`.
+
+**Ошибки:**
+
+- `400 BadRequest` — если поля не проходят валидацию.
+
+### GET `/users/:id`
+
+- **Auth:** отсутствует.
+- **Назначение:** получить пользователя по id.
+
+**Response:** объект `User`.
+
+**Ошибки:**
+
+- `404 NotFound` — если пользователь не найден.
+
+### PATCH `/users/:id`
+
+- **Auth:** отсутствует.
+- **Назначение:** обновить профиль пользователя.
+
+**Request DTO:** `UpdateUserRequest`
+
+| Поле | Тип | Валидация |
+| --- | --- | --- |
+| `display_name` | `string \| null` | optional |
+| `marketing_opt_in` | `boolean` | optional |
+
+**Response:** объект `User`.
+
+**Ошибки:**
+
+- `404 NotFound` — если пользователь не найден.
+
+### POST `/users/:id/accept-terms`
+
+- **Auth:** отсутствует.
+- **Назначение:** зафиксировать принятие условий.
+
+**Response:** объект `User` с заполненным `terms_accepted_at`.
+
+**Ошибки:**
+
+- `404 NotFound` — если пользователь не найден.
+
+### POST `/users/:id/accept-privacy`
+
+- **Auth:** отсутствует.
+- **Назначение:** зафиксировать принятие политики приватности.
+
+**Response:** объект `User` с заполненным `privacy_accepted_at`.
+
+**Ошибки:**
+
+- `404 NotFound` — если пользователь не найден.
+
+### DELETE `/users/:id`
+
+- **Auth:** отсутствует.
+- **Назначение:** архивировать пользователя.
+
+**Response:** объект `User` с заполненным `archived_at`.
+
+**Ошибки:**
+
+- `404 NotFound` — если пользователь не найден.
+
+**User (пример):**
+
+```json
+{
+  "id": 1,
+  "display_name": "Sergey",
+  "terms_accepted_at": "2026-01-29T10:16:00.000Z",
+  "privacy_accepted_at": "2026-01-29T10:16:00.000Z",
+  "marketing_opt_in": false,
+  "created_at": "2026-01-29T10:15:30.000Z",
+  "updated_at": "2026-01-29T10:20:00.000Z",
+  "archived_at": null
+}
+```
+
+## Auth
+
+### POST `/auth/email/start`
+
+- **Auth:** отсутствует.
+- **Назначение:** запрос OTP для входа по email.
+
+**Request DTO:** `AuthEmailStartRequest`
+
+| Поле | Тип | Валидация |
+| --- | --- | --- |
+| `email` | `string` | email |
+
+**Response:** `AuthEmailStartResponse`
+
+| Поле | Тип | Описание |
+| --- | --- | --- |
+| `identity_id` | `number` | Идентификатор identity |
+| `otp_id` | `number` | Идентификатор OTP |
+| `expires_at` | `string` | Время истечения кода |
+| `code` | `string \| null` | Возвращается только в non-production |
+
+### POST `/auth/email/verify`
+
+- **Auth:** отсутствует.
+- **Назначение:** проверка OTP и выдача refresh-сессии.
+
+**Request DTO:** `AuthEmailVerifyRequest`
+
+| Поле | Тип | Валидация |
+| --- | --- | --- |
+| `email` | `string` | email |
+| `code` | `string` | длина = `AUTH_OTP_LENGTH` (по умолчанию 6) |
+
+**Response:** `AuthEmailVerifyResponse`
+
+| Поле | Тип | Описание |
+| --- | --- | --- |
+| `user_id` | `number` | Пользователь |
+| `session_id` | `number` | Сессия |
+| `access_token` | `string` | Access-токен |
+| `refresh_token` | `string` | Refresh-токен |
+
+### POST `/auth/refresh`
+
+- **Auth:** отсутствует.
+- **Назначение:** ротация refresh-токена.
+
+**Request DTO:** `AuthRefreshRequest`
+
+| Поле | Тип | Валидация |
+| --- | --- | --- |
+| `session_id` | `number` | int |
+| `refresh_token` | `string` | required |
+
+**Response:** `AuthRefreshResponse`
+
+| Поле | Тип | Описание |
+| --- | --- | --- |
+| `session_id` | `number` | Сессия |
+| `access_token` | `string` | Новый access-токен |
+| `refresh_token` | `string` | Новый refresh-токен |
+
+### POST `/auth/logout`
+
+- **Auth:** отсутствует.
+- **Назначение:** отзыв сессии.
+
+**Request DTO:** `AuthLogoutRequest`
+
+| Поле | Тип | Валидация |
+| --- | --- | --- |
+| `session_id` | `number` | int |
+
+**Response:** `AuthLogoutResponse`
+
+| Поле | Тип | Описание |
+| --- | --- | --- |
+| `session_id` | `number` | Сессия |
+| `revoked_at` | `string` | Время отзыва |
+
+### GET `/auth/me`
+
+- **Auth:** требуется `Bearer` access-токен.
+- **Назначение:** профиль текущего пользователя.
+
+**Response:** объект `User`.
+
+**Заголовок:**
+
+`Authorization: Bearer <access_token>`
+
 ## Health
 
 ### GET `/health`

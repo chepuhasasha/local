@@ -26,13 +26,19 @@ cp .env.development.example .env
 docker-compose up -d
 ```
 
-4) Импортируйте адреса (создаёт таблицы и индексы):
+4) Запустите миграции доменных таблиц:
+
+```bash
+npm run migration:run
+```
+
+5) Импортируйте адреса (создаёт таблицы и индексы):
 
 ```bash
 npm run import:addresses:dev
 ```
 
-5) Запустите API:
+6) Запустите API:
 
 ```bash
 npm run start:dev

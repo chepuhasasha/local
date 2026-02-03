@@ -44,6 +44,21 @@
       database: string,
     }
   },
+  auth: {
+    jwtSecret: string,
+    accessTtlSeconds: number,
+    refreshTtlSeconds: number,
+    otpTtlSeconds: number,
+    otpLength: number,
+  },
+  mailer: {
+    host: string | null,
+    port: number | null,
+    user: string | null,
+    password: string | null,
+    from: string | null,
+    secure: boolean,
+  },
   addressesImport: {
     month: string | null,
     mode: 'upsert' | 'replace' | null,

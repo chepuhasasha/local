@@ -23,6 +23,21 @@ export const configuration = () => {
         database: env.POSTGRES_DB ?? null,
       },
     },
+    auth: {
+      jwtSecret: env.AUTH_JWT_SECRET,
+      accessTtlSeconds: env.AUTH_ACCESS_TTL_SECONDS,
+      refreshTtlSeconds: env.AUTH_REFRESH_TTL_SECONDS,
+      otpTtlSeconds: env.AUTH_OTP_TTL_SECONDS,
+      otpLength: env.AUTH_OTP_LENGTH,
+    },
+    mailer: {
+      host: env.MAILER_HOST ?? null,
+      port: env.MAILER_PORT ?? null,
+      user: env.MAILER_USER ?? null,
+      password: env.MAILER_PASSWORD ?? null,
+      from: env.MAILER_FROM ?? null,
+      secure: env.MAILER_SECURE ?? false,
+    },
     addressesImport: {
       month: env.ADDRESS_DATA_MONTH ?? null,
       mode: env.ADDRESS_IMPORT_MODE ?? null,
