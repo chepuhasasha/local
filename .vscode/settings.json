@@ -1,0 +1,8 @@
+{
+  "explorer.fileNesting.enabled": true,
+  "explorer.fileNesting.patterns": {
+    ".env": ".env.*",
+    "package.json": "package-lock.json, eslint*, .prettier*, nest-cli.json, tsconfig*",
+    ".gitignore": ".gitattributes"
+  }
+}
