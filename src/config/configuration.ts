@@ -43,6 +43,7 @@ export const configuration = () => {
       mode: env.ADDRESS_IMPORT_MODE ?? null,
       chunkSize: env.ADDRESS_CHUNK_SIZE ?? null,
       downloadLogEveryMs: env.ADDRESS_DOWNLOAD_LOG_MS ?? null,
+      downloadTimeoutMs: env.ADDRESS_DOWNLOAD_TIMEOUT_MS ?? null,
       insertLogEveryMs: env.ADDRESS_INSERT_LOG_MS ?? null,
       commitEveryBatches: env.ADDRESS_COMMIT_EVERY_BATCHES ?? null,
       dropIndexes: env.ADDRESS_DROP_INDEXES ?? null,

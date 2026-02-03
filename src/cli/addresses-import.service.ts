@@ -17,6 +17,7 @@ import { AppLoggerService } from '@/infrastructure/observability/logger.service'
 type Defaults = Readonly<{
   chunkSize: number;
   downloadLogEveryMs: number;
+  downloadTimeoutMs: number;
   insertLogEveryMs: number;
   commitEveryBatches: number;
   dropIndexesDuringImport: boolean;
@@ -27,6 +28,7 @@ type Defaults = Readonly<{
 const DEFAULTS: Defaults = {
   chunkSize: 5000,
   downloadLogEveryMs: 1500,
+  downloadTimeoutMs: 120_000,
   insertLogEveryMs: 1500,
   commitEveryBatches: 40, // коммит раз в N батчей, чтобы транзакция не разрасталась бесконечно
   dropIndexesDuringImport: true,
@@ -187,6 +189,10 @@ export class AddressesImportService {
       downloadLogEveryMs: asInt(
         config?.downloadLogEveryMs,
         DEFAULTS.downloadLogEveryMs,
+      ),
+      downloadTimeoutMs: asInt(
+        config?.downloadTimeoutMs,
+        DEFAULTS.downloadTimeoutMs,
       ),
       insertLogEveryMs: asInt(
         config?.insertLogEveryMs,
@@ -581,6 +587,7 @@ export class AddressesImportService {
         url,
         zipPath,
         defaults.downloadLogEveryMs,
+        defaults.downloadTimeoutMs,
       );
 
       if (defaults.dropIndexesDuringImport) {
@@ -869,7 +876,11 @@ export class AddressesImportService {
   /**
    * Выполняет HEAD-запрос и возвращает длину содержимого.
    */
-  private headContentLength(url: string, maxRedirects = 5): Promise<number> {
+  private headContentLength(
+    url: string,
+    timeoutMs: number,
+    maxRedirects = 5,
+  ): Promise<number> {
     return new Promise((resolve) => {
       const urlObj = new URL(url);
       const lib = this.getHttpLib(urlObj);
@@ -892,7 +903,7 @@ export class AddressesImportService {
           ) {
             res.resume();
             const next = new URL(res.headers.location, urlObj).toString();
-            resolve(this.headContentLength(next, maxRedirects - 1));
+            resolve(this.headContentLength(next, timeoutMs, maxRedirects - 1));
             return;
           }
 
@@ -901,6 +912,10 @@ export class AddressesImportService {
           resolve(Number.isFinite(len) ? len : 0);
         },
       );
+
+      req.setTimeout(timeoutMs, () => {
+        req.destroy(new Error('HEAD request timeout.'));
+      });
 
       req.on('error', () => resolve(0));
       req.end();
@@ -914,14 +929,26 @@ export class AddressesImportService {
     url: string,
     destPath: string,
     logEveryMs: number,
+    timeoutMs: number,
     redirects = 5,
   ): Promise<void> {
     await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
-    const totalFromHead = await this.headContentLength(url);
+    const totalFromHead = await this.headContentLength(url, timeoutMs);
 
     return new Promise((resolve, reject) => {
       const urlObj = new URL(url);
       const lib = this.getHttpLib(urlObj);
+      let settled = false;
+
+      const finish = (error?: Error) => {
+        if (settled) return;
+        settled = true;
+        if (error) {
+          reject(error);
+        } else {
+          resolve();
+        }
+      };
 
       const req = lib.get(
         {
@@ -940,20 +967,23 @@ export class AddressesImportService {
           ) {
             res.resume();
             const next = new URL(res.headers.location, urlObj).toString();
-            resolve(
-              this.downloadToFileWithProgress(
-                next,
-                destPath,
-                logEveryMs,
-                redirects - 1,
-              ),
-            );
+            this.downloadToFileWithProgress(
+              next,
+              destPath,
+              logEveryMs,
+              timeoutMs,
+              redirects - 1,
+            )
+              .then(() => finish())
+              .catch((err) =>
+                finish(err instanceof Error ? err : new Error(String(err))),
+              );
             return;
           }
 
           if (code !== 200) {
             res.resume();
-            reject(new Error(`HTTP ${code}`));
+            finish(new Error(`HTTP ${code}`));
             return;
           }
 
@@ -968,7 +998,18 @@ export class AddressesImportService {
           );
 
           const out = fs.createWriteStream(destPath);
-          out.on('error', reject);
+          out.on('error', (err) =>
+            finish(err instanceof Error ? err : new Error(String(err))),
+          );
+
+          res.setTimeout(timeoutMs, () => {
+            res.destroy(new Error('Download timeout.'));
+          });
+
+          res.on('aborted', () => finish(new Error('Download aborted.')));
+          res.on('error', (err) =>
+            finish(err instanceof Error ? err : new Error(String(err))),
+          );
 
           res.on('data', (chunk: Buffer) => {
             downloaded += chunk.length;
@@ -999,14 +1040,20 @@ export class AddressesImportService {
             this.log(
               `[download] done ${percent}% (${this.humanBytes(downloaded)}/${totalStr})`,
             );
-            resolve();
+            finish();
           });
 
           res.pipe(out);
         },
       );
 
-      req.on('error', reject);
+      req.setTimeout(timeoutMs, () => {
+        req.destroy(new Error('Download timeout.'));
+      });
+
+      req.on('error', (err) =>
+        finish(err instanceof Error ? err : new Error(String(err))),
+      );
     });
   }
 

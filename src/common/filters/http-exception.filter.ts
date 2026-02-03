@@ -36,10 +36,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
       : HttpStatus.INTERNAL_SERVER_ERROR;
 
     const responseBody = isHttpException ? exception.getResponse() : null;
-    const errorMessage = this.extractMessage(responseBody, exception);
-    const errorName = isHttpException
-      ? this.extractErrorName(responseBody, exception)
-      : 'InternalServerError';
+    const isServerError = status >= 500;
+    const errorMessage = isServerError
+      ? 'Internal server error'
+      : this.extractMessage(responseBody, exception);
+    const errorName = isServerError
+      ? 'InternalServerError'
+      : this.extractErrorName(responseBody, exception);
 
     const payload = {
       statusCode: status,

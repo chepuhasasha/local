@@ -133,7 +133,7 @@ curl -X POST http://localhost:3000/addresses/search \
 
 ### GET `/users/:id`
 
-- **Auth:** отсутствует.
+- **Auth:** требуется `Bearer` access-токен (доступ только к своему `id`).
 - **Назначение:** получить пользователя по id.
 
 **Response:** объект `User`.
@@ -144,7 +144,7 @@ curl -X POST http://localhost:3000/addresses/search \
 
 ### PATCH `/users/:id`
 
-- **Auth:** отсутствует.
+- **Auth:** требуется `Bearer` access-токен (доступ только к своему `id`).
 - **Назначение:** обновить профиль пользователя.
 
 **Request DTO:** `UpdateUserRequest`
@@ -162,7 +162,7 @@ curl -X POST http://localhost:3000/addresses/search \
 
 ### POST `/users/:id/accept-terms`
 
-- **Auth:** отсутствует.
+- **Auth:** требуется `Bearer` access-токен (доступ только к своему `id`).
 - **Назначение:** зафиксировать принятие условий.
 
 **Response:** объект `User` с заполненным `terms_accepted_at`.
@@ -173,7 +173,7 @@ curl -X POST http://localhost:3000/addresses/search \
 
 ### POST `/users/:id/accept-privacy`
 
-- **Auth:** отсутствует.
+- **Auth:** требуется `Bearer` access-токен (доступ только к своему `id`).
 - **Назначение:** зафиксировать принятие политики приватности.
 
 **Response:** объект `User` с заполненным `privacy_accepted_at`.
@@ -184,7 +184,7 @@ curl -X POST http://localhost:3000/addresses/search \
 
 ### DELETE `/users/:id`
 
-- **Auth:** отсутствует.
+- **Auth:** требуется `Bearer` access-токен (доступ только к своему `id`).
 - **Назначение:** архивировать пользователя.
 
 **Response:** объект `User` с заполненным `archived_at`.
@@ -273,8 +273,9 @@ curl -X POST http://localhost:3000/addresses/search \
 
 ### POST `/auth/logout`
 
-- **Auth:** отсутствует.
+- **Auth:** требуется `Bearer` access-токен.
 - **Назначение:** отзыв сессии.
+- **Ограничение:** `session_id` должен совпадать с сессией из access-токена.
 
 **Request DTO:** `AuthLogoutRequest`
 

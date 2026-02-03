@@ -1,12 +1,18 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Post,
   UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiBody, ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiOkResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 
 import { AuthService } from '@/modules/auth/auth.service';
 import {
@@ -48,8 +54,9 @@ export class AuthController {
   async startEmail(
     @Body() request: AuthEmailStartRequest,
   ): Promise<AuthEmailStartResponse> {
-    const { identity, otp, code } =
-      await this.authService.startEmailAuth(request.email);
+    const { identity, otp, code } = await this.authService.startEmailAuth(
+      request.email,
+    );
 
     return {
       identity_id: identity.id,
@@ -107,10 +114,21 @@ export class AuthController {
    */
   @ApiBody({ type: AuthLogoutRequest })
   @ApiOkResponse({ type: AuthLogoutResponse })
+  @ApiBearerAuth()
+  @UseGuards(AccessTokenGuard)
   @Post('logout')
   async logout(
+    @CurrentUser() user: AuthenticatedUser | null,
     @Body() request: AuthLogoutRequest,
   ): Promise<AuthLogoutResponse> {
+    if (!user) {
+      throw new UnauthorizedException('Пользователь не найден.');
+    }
+
+    if (request.session_id !== user.sessionId) {
+      throw new ForbiddenException('Недостаточно прав для отзыва сессии.');
+    }
+
     const session = await this.authService.logoutSession(request.session_id);
     return {
       session_id: session.id,

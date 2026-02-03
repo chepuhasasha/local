@@ -56,6 +56,7 @@ npm run import:addresses
 Ключевые параметры:
 
 - `ADDRESS_CHUNK_SIZE` — размер батча вставки.
+- `ADDRESS_DOWNLOAD_TIMEOUT_MS` — таймаут бездействия при загрузке архива.
 - `ADDRESS_COMMIT_EVERY_BATCHES` — частота коммитов транзакции.
 - `ADDRESS_DROP_INDEXES` — удалять индексы на время импорта.
 - `ADDRESS_COUNT_LINES_FOR_PERCENT` — считать строки заранее для прогресса.

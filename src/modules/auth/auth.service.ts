@@ -16,6 +16,7 @@ import { AuthIdentityEntity } from '@/modules/auth/entities/auth-identity.entity
 import { AuthOtpEntity } from '@/modules/auth/entities/auth-otp.entity';
 import { AuthSessionEntity } from '@/modules/auth/entities/auth-session.entity';
 import { UsersService } from '@/modules/users/users.service';
+import type { UserDto } from '@/modules/users/dto/user.dto';
 import type { AppConfig } from '@/config/configuration';
 import { MailerService } from '@/infrastructure/mailer/mailer.service';
 import type {
@@ -58,7 +59,7 @@ export class AuthService {
     );
 
     if (identity) {
-      let user;
+      let user: UserDto;
       try {
         user = await this.usersService.getById(identity.user_id);
       } catch {
@@ -104,10 +105,7 @@ export class AuthService {
     };
   }
 
-  async verifyEmailOtp(params: {
-    email: string;
-    code: string;
-  }): Promise<{
+  async verifyEmailOtp(params: { email: string; code: string }): Promise<{
     userId: number;
     sessionId: number;
     accessToken: string;
@@ -129,7 +127,7 @@ export class AuthService {
       throw new NotFoundException('Identity не найдена.');
     }
 
-    let user;
+    let user: UserDto;
     try {
       user = await this.usersService.getById(identity.user_id);
     } catch {
@@ -237,7 +235,7 @@ export class AuthService {
       throw new UnauthorizedException('Неверный access-токен.');
     }
 
-    let user;
+    let user: UserDto;
     try {
       user = await this.usersService.getById(session.user_id);
     } catch {
@@ -258,7 +256,9 @@ export class AuthService {
     const authConfig = this.authConfig;
 
     try {
-      const verified = jwt.verify(token, authConfig.jwtSecret);
+      const verified = jwt.verify(token, authConfig.jwtSecret, {
+        algorithms: ['HS256'],
+      });
       return this.normalizeAccessPayload(verified);
     } catch (error) {
       if (error instanceof JsonWebTokenError) {
@@ -284,7 +284,7 @@ export class AuthService {
     }
 
     return {
-      ...(raw as JwtPayload),
+      ...raw,
       sub,
       sid,
     };
@@ -428,6 +428,7 @@ export class AuthService {
 
     return jwt.sign(payload, this.authConfig.jwtSecret, {
       expiresIn: params.expiresInSeconds,
+      algorithm: 'HS256',
     });
   }
 

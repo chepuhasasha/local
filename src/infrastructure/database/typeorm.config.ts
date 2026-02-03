@@ -61,7 +61,9 @@ export const buildTypeOrmOptions = (
     throw new Error('Database configuration is missing.');
   }
 
-  return buildOptions(raw as AppConfig['database'], { includeMigrations: false });
+  return buildOptions(raw as AppConfig['database'], {
+    includeMigrations: false,
+  });
 };
 
 /**

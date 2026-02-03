@@ -20,7 +20,7 @@
 | `POSTGRES_USER` | string | да | — | Пользователь PostgreSQL. |
 | `POSTGRES_PASSWORD` | string | да | — | Пароль PostgreSQL. |
 | `POSTGRES_DB` | string | да | — | Имя базы данных. |
-| `AUTH_JWT_SECRET` | string (min 16) | нет | `dev-secret-change-me` | Секрет для подписи access-токенов. |
+| `AUTH_JWT_SECRET` | string (min 16) | да (production) | `dev-secret-change-me` | Секрет для подписи access-токенов. В production должен быть переопределён. |
 | `AUTH_ACCESS_TTL_SECONDS` | positive int | нет | `900` | TTL access-токена в секундах. |
 | `AUTH_REFRESH_TTL_SECONDS` | positive int | нет | `2592000` | TTL refresh-сессии в секундах. |
 | `AUTH_OTP_TTL_SECONDS` | positive int | нет | `600` | TTL одноразового кода в секундах. |
@@ -44,6 +44,7 @@
 | `ADDRESS_IMPORT_MODE` | `upsert \| replace` | `upsert` | `upsert` обновляет записи по `id`, `replace` предполагает чистую вставку в пустую таблицу. |
 | `ADDRESS_CHUNK_SIZE` | positive int | `5000` | Размер батча вставки. |
 | `ADDRESS_DOWNLOAD_LOG_MS` | positive int (ms) | `1500` | Частота логов загрузки архива. |
+| `ADDRESS_DOWNLOAD_TIMEOUT_MS` | positive int (ms) | `120000` | Таймаут бездействия при загрузке архива. |
 | `ADDRESS_INSERT_LOG_MS` | positive int (ms) | `1500` | Частота логов вставки данных. |
 | `ADDRESS_COMMIT_EVERY_BATCHES` | positive int | `40` | Коммит каждые N батчей. |
 | `ADDRESS_DROP_INDEXES` | boolean | `true` | Временно удалять индексы на `addresses_next` во время импорта. |

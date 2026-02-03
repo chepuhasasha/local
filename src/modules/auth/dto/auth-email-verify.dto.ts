@@ -2,7 +2,10 @@ import { ApiProperty } from '@nestjs/swagger';
 import { IsEmail, IsString, Length } from 'class-validator';
 
 export class AuthEmailVerifyRequest {
-  @ApiProperty({ description: 'Email пользователя.', example: 'sergey@example.com' })
+  @ApiProperty({
+    description: 'Email пользователя.',
+    example: 'sergey@example.com',
+  })
   @IsEmail()
   email: string;
 
@@ -27,7 +30,7 @@ export class AuthEmailVerifyResponse {
 
   @ApiProperty({
     description: 'Refresh-токен для обновления сессии.',
-    example: 'c0a4d7b8f2a4...'
+    example: 'c0a4d7b8f2a4...',
   })
   refresh_token: string;
 }

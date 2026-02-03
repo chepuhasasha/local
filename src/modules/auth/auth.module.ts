@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AuthIdentityEntity } from '@/modules/auth/entities/auth-identity.entity';
@@ -20,7 +20,7 @@ import { AccessTokenGuard } from '@/modules/auth/guards/access-token.guard';
       AuthOtpEntity,
       AuthSessionEntity,
     ]),
-    UsersModule,
+    forwardRef(() => UsersModule),
     MailerModule,
   ],
   controllers: [AuthController],
@@ -31,6 +31,6 @@ import { AccessTokenGuard } from '@/modules/auth/guards/access-token.guard';
     AuthSessionsRepository,
     AccessTokenGuard,
   ],
-  exports: [AuthService],
+  exports: [AuthService, AccessTokenGuard],
 })
 export class AuthModule {}

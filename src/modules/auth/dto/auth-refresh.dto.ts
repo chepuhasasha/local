@@ -11,7 +11,7 @@ export class AuthRefreshRequest {
 
   @ApiProperty({
     description: 'Refresh-токен, выданный при логине/обновлении.',
-    example: 'c0a4d7b8f2a4...'
+    example: 'c0a4d7b8f2a4...',
   })
   @IsString()
   refresh_token: string;
@@ -29,7 +29,7 @@ export class AuthRefreshResponse {
 
   @ApiProperty({
     description: 'Новый refresh-токен.',
-    example: 'b7c1a9d3e2f4...'
+    example: 'b7c1a9d3e2f4...',
   })
   refresh_token: string;
 }

@@ -2,7 +2,10 @@ import { ApiProperty } from '@nestjs/swagger';
 import { IsEmail } from 'class-validator';
 
 export class AuthEmailStartRequest {
-  @ApiProperty({ description: 'Email для входа.', example: 'sergey@example.com' })
+  @ApiProperty({
+    description: 'Email для входа.',
+    example: 'sergey@example.com',
+  })
   @IsEmail()
   email: string;
 }
@@ -21,8 +24,7 @@ export class AuthEmailStartResponse {
   expires_at: string;
 
   @ApiProperty({
-    description:
-      'Код OTP (возвращается только в non-production окружениях).',
+    description: 'Код OTP (возвращается только в non-production окружениях).',
     nullable: true,
     example: '123456',
   })
