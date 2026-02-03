@@ -14,6 +14,7 @@
 - [Безопасность: авторизация/RBAC](docs/security/authorization-rbac.md)
 - [Безопасность: hardening](docs/security/hardening.md)
 - [Данные: обзор БД](docs/data/database-overview.md)
+- [Данные: модель данных](docs/data/data-model.md)
 - [Данные: сущности](docs/data/entities.md)
 - [Данные: миграции и сиды](docs/data/migrations-and-seeds.md)
 - [API: обзор](docs/api/overview.md)
@@ -25,4 +26,3 @@
 - [Деплой: обзор](docs/deployment/deployment-guide.md)
 - [Деплой: Docker](docs/deployment/docker.md)
 - [Траблшутинг](docs/troubleshooting/common-issues.md)
-- [Нужен ввод](docs/needs-input.md)
