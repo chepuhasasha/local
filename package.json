@@ -17,7 +17,7 @@
     "lint": "eslint \"{src,test}/**/*.ts\"",
     "test": "jest --config ./test/jest-unit.json",
     "test:watch": "jest --watch",
-    "test:cov": "jest --coverage",
+    "test:cov": "jest --config ./test/jest-unit.json --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "migration:run": "NODE_OPTIONS='-r ts-node/register -r tsconfig-paths/register -r dotenv/config' node ./node_modules/typeorm/cli.js -d src/infrastructure/database/typeorm.config.ts migration:run",
