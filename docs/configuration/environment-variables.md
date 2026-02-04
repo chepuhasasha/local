@@ -29,6 +29,15 @@
 | `AUTH_OTP_COOLDOWN_SECONDS` | int (>=0) | нет | `60` | Минимальный интервал между выдачами OTP на одну identity (0 = выключено). |
 | `AUTH_OTP_WINDOW_SECONDS` | int (>=0) | нет | `3600` | Размер окна для лимита OTP (0 = выключено). |
 | `AUTH_OTP_MAX_PER_WINDOW` | int (>=0) | нет | `5` | Максимум OTP в окне (0 = выключено). |
+| `THROTTLE_DEFAULT_TTL_SECONDS` | int (>=1) | нет | `60` | Размер окна по умолчанию для rate limit (сек). |
+| `THROTTLE_DEFAULT_LIMIT` | int (>=1) | нет | `100` | Лимит запросов по умолчанию в одном окне. |
+| `THROTTLE_AUTH_EMAIL_START_TTL_SECONDS` | int (>=1) | нет | `300` | Окно rate limit для `/auth/email/start` (сек). |
+| `THROTTLE_AUTH_EMAIL_START_LIMIT` | int (>=1) | нет | `5` | Лимит запросов для `/auth/email/start` в одном окне. |
+| `THROTTLE_AUTH_EMAIL_VERIFY_TTL_SECONDS` | int (>=1) | нет | `300` | Окно rate limit для `/auth/email/verify` (сек). |
+| `THROTTLE_AUTH_EMAIL_VERIFY_LIMIT` | int (>=1) | нет | `10` | Лимит запросов для `/auth/email/verify` в одном окне. |
+| `THROTTLE_AUTH_REFRESH_TTL_SECONDS` | int (>=1) | нет | `60` | Окно rate limit для `/auth/refresh` (сек). |
+| `THROTTLE_AUTH_REFRESH_LIMIT` | int (>=1) | нет | `30` | Лимит запросов для `/auth/refresh` в одном окне. |
+| `THROTTLE_TRUST_PROXY` | boolean | нет | `false` | Использовать `X-Forwarded-For` при наличии балансировщика. |
 | `MAILER_HOST` | string | нет | — | SMTP host (отправка email включается вместе с `MAILER_PORT` и `MAILER_FROM`). |
 | `MAILER_PORT` | `1..65535` | нет | — | SMTP port. |
 | `MAILER_USER` | string | нет | — | SMTP user. |

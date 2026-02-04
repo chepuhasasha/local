@@ -38,6 +38,7 @@ import { CurrentUser } from '@/modules/auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '@/modules/auth/types/auth.types';
 import { UsersService } from '@/modules/users/users.service';
 import { UserDto } from '@/modules/users/dto/user.dto';
+import { RateLimit } from '@/common/decorators/rate-limit.decorator';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -66,6 +67,7 @@ export class AuthController {
    */
   @ApiBody({ type: AuthEmailStartRequest })
   @ApiOkResponse({ type: AuthEmailStartResponse })
+  @RateLimit('authEmailStart')
   @Post('email/start')
   async startEmail(
     @Body() request: AuthEmailStartRequest,
@@ -87,6 +89,7 @@ export class AuthController {
    */
   @ApiBody({ type: AuthEmailVerifyRequest })
   @ApiOkResponse({ type: AuthEmailVerifyResponse })
+  @RateLimit('authEmailVerify')
   @Post('email/verify')
   async verifyEmail(
     @Body() request: AuthEmailVerifyRequest,
@@ -109,6 +112,7 @@ export class AuthController {
    */
   @ApiBody({ type: AuthRefreshRequest })
   @ApiOkResponse({ type: AuthRefreshResponse })
+  @RateLimit('authRefresh')
   @Post('refresh')
   async refresh(
     @Body() request: AuthRefreshRequest,

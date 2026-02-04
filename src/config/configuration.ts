@@ -37,6 +37,17 @@ export const configuration = () => {
       otpWindowSeconds: env.AUTH_OTP_WINDOW_SECONDS,
       otpMaxPerWindow: env.AUTH_OTP_MAX_PER_WINDOW,
     },
+    rateLimit: {
+      defaultTtlSeconds: env.THROTTLE_DEFAULT_TTL_SECONDS,
+      defaultLimit: env.THROTTLE_DEFAULT_LIMIT,
+      authEmailStartTtlSeconds: env.THROTTLE_AUTH_EMAIL_START_TTL_SECONDS,
+      authEmailStartLimit: env.THROTTLE_AUTH_EMAIL_START_LIMIT,
+      authEmailVerifyTtlSeconds: env.THROTTLE_AUTH_EMAIL_VERIFY_TTL_SECONDS,
+      authEmailVerifyLimit: env.THROTTLE_AUTH_EMAIL_VERIFY_LIMIT,
+      authRefreshTtlSeconds: env.THROTTLE_AUTH_REFRESH_TTL_SECONDS,
+      authRefreshLimit: env.THROTTLE_AUTH_REFRESH_LIMIT,
+      trustProxy: env.THROTTLE_TRUST_PROXY ?? false,
+    },
     mailer: {
       host: env.MAILER_HOST ?? null,
       port: env.MAILER_PORT ?? null,

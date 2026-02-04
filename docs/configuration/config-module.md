@@ -51,6 +51,17 @@
     otpTtlSeconds: number,
     otpLength: number,
   },
+  rateLimit: {
+    defaultTtlSeconds: number,
+    defaultLimit: number,
+    authEmailStartTtlSeconds: number,
+    authEmailStartLimit: number,
+    authEmailVerifyTtlSeconds: number,
+    authEmailVerifyLimit: number,
+    authRefreshTtlSeconds: number,
+    authRefreshLimit: number,
+    trustProxy: boolean,
+  },
   mailer: {
     host: string | null,
     port: number | null,

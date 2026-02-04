@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { RATE_LIMIT_DEFAULTS } from '@/common/constants/rate-limit.constants';
+
 const emptyToUndefined = (value: unknown): unknown => {
   if (value === '' || value === null || value === undefined) {
     return undefined;
@@ -63,6 +65,47 @@ export const envSchema = z
     AUTH_OTP_COOLDOWN_SECONDS: z.coerce.number().int().min(0).default(60),
     AUTH_OTP_WINDOW_SECONDS: z.coerce.number().int().min(0).default(3600),
     AUTH_OTP_MAX_PER_WINDOW: z.coerce.number().int().min(0).default(5),
+    THROTTLE_DEFAULT_TTL_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .default(RATE_LIMIT_DEFAULTS.defaultTtlSeconds),
+    THROTTLE_DEFAULT_LIMIT: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .default(RATE_LIMIT_DEFAULTS.defaultLimit),
+    THROTTLE_AUTH_EMAIL_START_TTL_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .default(RATE_LIMIT_DEFAULTS.authEmailStartTtlSeconds),
+    THROTTLE_AUTH_EMAIL_START_LIMIT: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .default(RATE_LIMIT_DEFAULTS.authEmailStartLimit),
+    THROTTLE_AUTH_EMAIL_VERIFY_TTL_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .default(RATE_LIMIT_DEFAULTS.authEmailVerifyTtlSeconds),
+    THROTTLE_AUTH_EMAIL_VERIFY_LIMIT: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .default(RATE_LIMIT_DEFAULTS.authEmailVerifyLimit),
+    THROTTLE_AUTH_REFRESH_TTL_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .default(RATE_LIMIT_DEFAULTS.authRefreshTtlSeconds),
+    THROTTLE_AUTH_REFRESH_LIMIT: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .default(RATE_LIMIT_DEFAULTS.authRefreshLimit),
+    THROTTLE_TRUST_PROXY: optionalBoolean(),
     MAILER_HOST: optionalString(),
     MAILER_PORT: optionalNumber(1, 65535),
     MAILER_USER: optionalString(),

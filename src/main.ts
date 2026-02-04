@@ -55,6 +55,20 @@ function getAppConfig(app: INestApplicationContext): AppConfig['app'] {
 }
 
 /**
+ * Возвращает конфигурацию rate limiting.
+ */
+function getRateLimitConfig(
+  app: INestApplicationContext,
+): AppConfig['rateLimit'] {
+  const configService = app.get(ConfigService);
+  const raw: unknown = configService.get('rateLimit', { infer: true });
+  if (!raw || typeof raw !== 'object') {
+    throw new Error('Rate limit configuration is missing.');
+  }
+  return raw as AppConfig['rateLimit'];
+}
+
+/**
  * Возвращает порт из конфигурации приложения.
  */
 function getPort(app: INestApplicationContext): number {
@@ -75,6 +89,14 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, {
     bufferLogs: true,
   });
+
+  const rateLimitConfig = getRateLimitConfig(app);
+  if (rateLimitConfig.trustProxy) {
+    const adapter = app.getHttpAdapter().getInstance();
+    if (adapter?.set) {
+      adapter.set('trust proxy', 1);
+    }
+  }
 
   app.useLogger(app.get(AppLoggerService));
   app.enableShutdownHooks();
