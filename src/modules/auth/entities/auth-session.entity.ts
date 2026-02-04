@@ -1,16 +1,18 @@
-import {
-  Column,
-  CreateDateColumn,
-  Entity,
-  PrimaryGeneratedColumn,
-} from 'typeorm';
+import { Column, CreateDateColumn, Entity } from 'typeorm';
+
+import { bigintTransformer } from '@/infrastructure/database/transformers/bigint.transformer';
 
 @Entity({ name: 'auth_session' })
 export class AuthSessionEntity {
-  @PrimaryGeneratedColumn('increment', { type: 'bigint' })
+  @Column({
+    type: 'bigint',
+    primary: true,
+    generated: 'increment',
+    transformer: bigintTransformer,
+  })
   id: number;
 
-  @Column({ type: 'bigint', name: 'user_id' })
+  @Column({ type: 'bigint', name: 'user_id', transformer: bigintTransformer })
   user_id: number;
 
   @Column({ type: 'text', name: 'refresh_hash' })

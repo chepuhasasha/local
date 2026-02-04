@@ -1,17 +1,18 @@
-import {
-  Column,
-  CreateDateColumn,
-  Entity,
-  PrimaryGeneratedColumn,
-  UpdateDateColumn,
-} from 'typeorm';
+import { Column, CreateDateColumn, Entity, UpdateDateColumn } from 'typeorm';
+
+import { bigintTransformer } from '@/infrastructure/database/transformers/bigint.transformer';
 
 @Entity({ name: 'users' })
 export class UserEntity {
   /**
    * Уникальный идентификатор пользователя.
    */
-  @PrimaryGeneratedColumn('increment', { type: 'bigint' })
+  @Column({
+    type: 'bigint',
+    primary: true,
+    generated: 'increment',
+    transformer: bigintTransformer,
+  })
   id: number;
 
   /**

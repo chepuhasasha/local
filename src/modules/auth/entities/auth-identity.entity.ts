@@ -1,19 +1,19 @@
-import {
-  Column,
-  CreateDateColumn,
-  Entity,
-  PrimaryGeneratedColumn,
-  UpdateDateColumn,
-} from 'typeorm';
+import { Column, CreateDateColumn, Entity, UpdateDateColumn } from 'typeorm';
 
 import { AuthProvider } from '@/modules/auth/types/auth.types';
+import { bigintTransformer } from '@/infrastructure/database/transformers/bigint.transformer';
 
 @Entity({ name: 'auth_identity' })
 export class AuthIdentityEntity {
-  @PrimaryGeneratedColumn('increment', { type: 'bigint' })
+  @Column({
+    type: 'bigint',
+    primary: true,
+    generated: 'increment',
+    transformer: bigintTransformer,
+  })
   id: number;
 
-  @Column({ type: 'bigint', name: 'user_id' })
+  @Column({ type: 'bigint', name: 'user_id', transformer: bigintTransformer })
   user_id: number;
 
   @Column({

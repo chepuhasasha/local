@@ -51,10 +51,11 @@ export class AuthService {
     marketingOptIn?: boolean;
   }): Promise<UserDto> {
     const normalizedEmail = this.normalizeEmail(params.email);
-    const existingIdentity = await this.identitiesRepository.findActiveByProvider(
-      AuthProvider.Email,
-      normalizedEmail,
-    );
+    const existingIdentity =
+      await this.identitiesRepository.findActiveByProvider(
+        AuthProvider.Email,
+        normalizedEmail,
+      );
 
     if (existingIdentity) {
       throw new BadRequestException('Пользователь уже зарегистрирован.');
@@ -86,7 +87,7 @@ export class AuthService {
     const authConfig = this.authConfig;
     const normalizedEmail = this.normalizeEmail(email);
 
-    let identity = await this.identitiesRepository.findActiveByProvider(
+    const identity = await this.identitiesRepository.findActiveByProvider(
       AuthProvider.Email,
       normalizedEmail,
     );
