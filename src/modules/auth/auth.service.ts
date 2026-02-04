@@ -45,6 +45,39 @@ export class AuthService {
     this.authConfig = raw as AppConfig['auth'];
   }
 
+  async registerUser(params: {
+    email: string;
+    displayName?: string | null;
+    marketingOptIn?: boolean;
+  }): Promise<UserDto> {
+    const normalizedEmail = this.normalizeEmail(params.email);
+    const existingIdentity = await this.identitiesRepository.findActiveByProvider(
+      AuthProvider.Email,
+      normalizedEmail,
+    );
+
+    if (existingIdentity) {
+      throw new BadRequestException('Пользователь уже зарегистрирован.');
+    }
+
+    const acceptedAt = new Date();
+    const user = await this.usersService.createWithConsents({
+      display_name: params.displayName ?? null,
+      marketing_opt_in: params.marketingOptIn ?? false,
+      terms_accepted_at: acceptedAt,
+      privacy_accepted_at: acceptedAt,
+    });
+
+    await this.createIdentity({
+      userId: user.id,
+      provider: AuthProvider.Email,
+      providerUserId: normalizedEmail,
+      isVerified: false,
+    });
+
+    return user;
+  }
+
   async startEmailAuth(email: string): Promise<{
     identity: AuthIdentityEntity;
     otp: AuthOtpEntity;
@@ -72,17 +105,7 @@ export class AuthService {
     }
 
     if (!identity) {
-      const user = await this.usersService.create({
-        display_name: null,
-        marketing_opt_in: false,
-      });
-
-      identity = await this.createIdentity({
-        userId: user.id,
-        provider: AuthProvider.Email,
-        providerUserId: normalizedEmail,
-        isVerified: false,
-      });
+      throw new NotFoundException('Пользователь не зарегистрирован.');
     }
 
     const code = this.generateOtpCode(authConfig.otpLength);
@@ -231,7 +254,8 @@ export class AuthService {
       throw new UnauthorizedException('Сессия истекла.');
     }
 
-    if (session.user_id !== payload.sub) {
+    const sessionUserId = Number(session.user_id);
+    if (!Number.isFinite(sessionUserId) || sessionUserId !== payload.sub) {
       throw new UnauthorizedException('Неверный access-токен.');
     }
 

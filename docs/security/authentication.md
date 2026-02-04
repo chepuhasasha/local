@@ -8,11 +8,10 @@
 
 ## Текущее состояние
 
-- Реализованы эндпоинты `/auth/*` (email + OTP, refresh, logout, `/auth/me`).
+- Реализованы эндпоинты `/auth/*` (register, email + OTP, refresh, logout, `/auth/me`).
 - Access-токены (`Bearer`) используются для авторизации `/auth/me` и `/auth/logout`.
 - Refresh-токены хранятся как хэш в `auth_session`.
 - Доменные таблицы и сервисы для identity/OTP/сессий добавлены.
-- Эндпоинты `GET/PATCH/POST /users/:id/*` и `DELETE /users/:id` требуют access-токена и доступны только для своего пользователя.
 - Остальные эндпоинты публичны и не требуют токена.
 - В non-production OTP возвращается в ответе; если SMTP не настроен, код дополнительно логируется и письмо не отправляется.
 - В production требуется настроенный SMTP (минимум `MAILER_HOST`, `MAILER_PORT`, `MAILER_FROM`; опционально `MAILER_USER`/`MAILER_PASSWORD`). Если он не настроен, `/auth/email/start` завершится ошибкой и код не будет выдан.
@@ -41,7 +40,8 @@ Authorization: Bearer <access_token>
 
 ```mermaid
 flowchart TD
-  Client["Client"] -->|"POST /auth/email/start"| AuthController
+  Client["Client"] -->|"POST /auth/register"| AuthController
+  Client -->|"POST /auth/email/start"| AuthController
   Client -->|"POST /auth/email/verify"| AuthController
   Client -->|"POST /auth/refresh"| AuthController
   Client -->|"POST /auth/logout"| AuthController
@@ -63,6 +63,33 @@ flowchart TD
   MailerService --> SMTP[(SMTP)]
 ```
 
+### Регистрация пользователя (`/auth/register`)
+
+```mermaid
+sequenceDiagram
+  participant Client
+  participant AuthController
+  participant AuthService
+  participant UsersService
+  participant AuthIdentitiesRepository
+  participant DB
+
+  Client->>AuthController: POST /auth/register
+  AuthController->>AuthService: registerUser(email, display_name, marketing_opt_in)
+  AuthService->>AuthIdentitiesRepository: findActiveByProvider(email)
+  AuthIdentitiesRepository->>DB: SELECT auth_identity
+  alt identity exists
+    AuthService-->>AuthController: 400 BadRequest
+  else identity missing
+    AuthService->>UsersService: create user + consents
+    UsersService->>DB: INSERT users
+    AuthService->>AuthIdentitiesRepository: create identity
+    AuthIdentitiesRepository->>DB: INSERT auth_identity
+    AuthService-->>AuthController: user
+    AuthController-->>Client: 201 Created
+  end
+```
+
 ### Запрос OTP по email (`/auth/email/start`)
 
 ```mermaid
@@ -81,17 +108,17 @@ sequenceDiagram
   AuthService->>AuthIdentitiesRepository: findActiveByProvider(email)
   AuthIdentitiesRepository->>DB: SELECT auth_identity
   alt identity not found
-    AuthService->>UsersService: create user
-    UsersService->>DB: INSERT users
-    AuthService->>AuthIdentitiesRepository: create identity
-    AuthIdentitiesRepository->>DB: INSERT auth_identity
+    AuthService-->>AuthController: 404 NotFound
+  else identity found
+    AuthService->>UsersService: get user
+    UsersService->>DB: SELECT users
+    AuthService->>AuthOtpsRepository: create OTP (hash + expires)
+    AuthOtpsRepository->>DB: INSERT auth_otp
+    AuthService->>MailerService: sendOtpEmail
+    MailerService-->>AuthService: ok or throw in production
+    AuthService-->>AuthController: identity_id, otp_id, expires_at, code?
+    AuthController-->>Client: 200 OK
   end
-  AuthService->>AuthOtpsRepository: create OTP (hash + expires)
-  AuthOtpsRepository->>DB: INSERT auth_otp
-  AuthService->>MailerService: sendOtpEmail
-  MailerService-->>AuthService: ok or throw in production
-  AuthService-->>AuthController: identity_id, otp_id, expires_at, code?
-  AuthController-->>Client: 200 OK
 ```
 
 ### Проверка OTP и выдача токенов (`/auth/email/verify`)
@@ -171,15 +198,22 @@ sequenceDiagram
   AccessTokenGuard-->>Client: proceed to controller
 ```
 
-### 1) Запрос OTP по email (`POST /auth/email/start`)
+### 1) Регистрация пользователя (`POST /auth/register`)
 
 1. Email нормализуется (lowercase, trim).
-2. Если identity не найдена — создаётся `users` запись и `auth_identity`.
+2. Проверяется, что identity для email отсутствует.
+3. Создаётся запись пользователя с `terms_accepted_at`, `privacy_accepted_at` и `marketing_opt_in`.
+4. Создаётся `auth_identity` для email.
+
+### 2) Запрос OTP по email (`POST /auth/email/start`)
+
+1. Email нормализуется (lowercase, trim).
+2. Если identity не найдена — возвращается ошибка `NotFound`.
 3. Создаётся OTP, код хэшируется (SHA-256) и сохраняется в `auth_otp`.
 4. Код отправляется через SMTP, либо логируется в non-production.
 5. В ответ возвращаются `identity_id`, `otp_id`, `expires_at` и `code` (только non-production).
 
-### 2) Проверка OTP (`POST /auth/email/verify`)
+### 3) Проверка OTP (`POST /auth/email/verify`)
 
 1. Проверяется длина кода (`AUTH_OTP_LENGTH`).
 2. Ищется активный OTP по `identity_id`, хэшу и `expires_at`.
@@ -187,7 +221,7 @@ sequenceDiagram
 4. Identity помечается как верифицированный.
 5. Создаётся refresh-сессия и выдаётся access + refresh токены.
 
-### 3) Обновление сессии (`POST /auth/refresh`)
+### 4) Обновление сессии (`POST /auth/refresh`)
 
 1. Проверяется наличие сессии и отсутствие `revoked_at`.
 2. Проверяется срок жизни refresh-сессии (`AUTH_REFRESH_TTL_SECONDS`, считается от `created_at`).
@@ -195,14 +229,14 @@ sequenceDiagram
 4. Refresh-токен ротируется (создаётся новый), `last_seen_at` обновляется.
 5. Возвращается новый access + refresh токен.
 
-### 4) Выход (`POST /auth/logout`)
+### 5) Выход (`POST /auth/logout`)
 
 1. Требуется `Bearer` access-токен.
 2. `session_id` должен совпадать с сессией в access-токене.
 3. Сессия помечается как отозванная (`revoked_at`).
-2. Возвращается `revoked_at`.
+4. Возвращается `revoked_at`.
 
-### 5) Профиль пользователя (`GET /auth/me`)
+### 6) Профиль пользователя (`GET /auth/me`)
 
 1. `AccessTokenGuard` валидирует JWT и проверяет сессию.
 2. Пользователь извлекается из `request.auth`.

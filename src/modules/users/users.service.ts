@@ -10,6 +10,24 @@ import { UserEntity } from '@/modules/users/entities/user.entity';
 export class UsersService {
   constructor(private readonly usersRepository: UsersRepository) {}
 
+  async createWithConsents(params: {
+    display_name?: string | null;
+    marketing_opt_in?: boolean;
+    terms_accepted_at: Date;
+    privacy_accepted_at: Date;
+  }): Promise<UserDto> {
+    const user = this.usersRepository.create({
+      display_name: params.display_name ?? null,
+      marketing_opt_in: params.marketing_opt_in ?? false,
+      terms_accepted_at: params.terms_accepted_at,
+      privacy_accepted_at: params.privacy_accepted_at,
+      archived_at: null,
+    });
+
+    const saved = await this.usersRepository.save(user);
+    return this.toDto(saved);
+  }
+
   async create(dto: CreateUserRequest): Promise<UserDto> {
     const user = this.usersRepository.create({
       display_name: dto.display_name ?? null,

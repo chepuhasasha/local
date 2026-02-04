@@ -18,35 +18,64 @@ export class AppLoggerService extends ConsoleLogger {
    * Логирует информационное сообщение.
    */
   override log(message: unknown, context?: string): void {
-    super.log(this.formatLogMessage(message), context);
+    const formatted = this.formatLogMessage(message);
+    if (context) {
+      super.log(formatted, context);
+      return;
+    }
+    super.log(formatted);
   }
 
   /**
    * Логирует предупреждение.
    */
   override warn(message: unknown, context?: string): void {
-    super.warn(this.formatLogMessage(message), context);
+    const formatted = this.formatLogMessage(message);
+    if (context) {
+      super.warn(formatted, context);
+      return;
+    }
+    super.warn(formatted);
   }
 
   /**
    * Логирует ошибку.
    */
   override error(message: unknown, trace?: string, context?: string): void {
-    super.error(this.formatLogMessage(message), trace, context);
+    const formatted = this.formatLogMessage(message);
+    if (context) {
+      super.error(formatted, trace, context);
+      return;
+    }
+    if (trace) {
+      super.error(formatted, trace);
+      return;
+    }
+    super.error(formatted);
   }
 
   /**
    * Логирует отладочное сообщение.
    */
   override debug(message: unknown, context?: string): void {
-    super.debug(this.formatLogMessage(message), context);
+    const formatted = this.formatLogMessage(message);
+    if (context) {
+      super.debug(formatted, context);
+      return;
+    }
+    super.debug(formatted);
   }
 
   /**
    * Логирует verbose сообщение.
    */
   override verbose(message: unknown, context?: string): void {
-    super.verbose(this.formatLogMessage(message), context);
+    const formatted = this.formatLogMessage(message);
+    if (context) {
+      super.verbose(formatted, context);
+      return;
+    }
+    super.verbose(formatted);
   }
 
   /**

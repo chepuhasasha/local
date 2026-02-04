@@ -111,104 +111,27 @@ curl -X POST http://localhost:3000/addresses/search \
 ]
 ```
 
-## Users
+## Auth
 
-### POST `/users`
+### POST `/auth/register`
 
 - **Auth:** отсутствует.
-- **Назначение:** создание бизнес-пользователя.
+- **Назначение:** регистрация пользователя.
 
-**Request DTO:** `CreateUserRequest`
+**Request DTO:** `AuthRegisterRequest`
 
 | Поле | Тип | Валидация | По умолчанию |
 | --- | --- | --- | --- |
+| `email` | `string` | email | — |
 | `display_name` | `string \| null` | optional | `null` |
 | `marketing_opt_in` | `boolean` | optional | `false` |
 
-**Response:** объект `User`.
+**Response:** объект `User` с заполненными `terms_accepted_at`, `privacy_accepted_at` и `marketing_opt_in`.
 
 **Ошибки:**
 
-- `400 BadRequest` — если поля не проходят валидацию.
+- `400 BadRequest` — если пользователь уже зарегистрирован или поля не проходят валидацию.
 
-### GET `/users/:id`
-
-- **Auth:** требуется `Bearer` access-токен (доступ только к своему `id`).
-- **Назначение:** получить пользователя по id.
-
-**Response:** объект `User`.
-
-**Ошибки:**
-
-- `404 NotFound` — если пользователь не найден.
-
-### PATCH `/users/:id`
-
-- **Auth:** требуется `Bearer` access-токен (доступ только к своему `id`).
-- **Назначение:** обновить профиль пользователя.
-
-**Request DTO:** `UpdateUserRequest`
-
-| Поле | Тип | Валидация |
-| --- | --- | --- |
-| `display_name` | `string \| null` | optional |
-| `marketing_opt_in` | `boolean` | optional |
-
-**Response:** объект `User`.
-
-**Ошибки:**
-
-- `404 NotFound` — если пользователь не найден.
-
-### POST `/users/:id/accept-terms`
-
-- **Auth:** требуется `Bearer` access-токен (доступ только к своему `id`).
-- **Назначение:** зафиксировать принятие условий.
-
-**Response:** объект `User` с заполненным `terms_accepted_at`.
-
-**Ошибки:**
-
-- `404 NotFound` — если пользователь не найден.
-
-### POST `/users/:id/accept-privacy`
-
-- **Auth:** требуется `Bearer` access-токен (доступ только к своему `id`).
-- **Назначение:** зафиксировать принятие политики приватности.
-
-**Response:** объект `User` с заполненным `privacy_accepted_at`.
-
-**Ошибки:**
-
-- `404 NotFound` — если пользователь не найден.
-
-### DELETE `/users/:id`
-
-- **Auth:** требуется `Bearer` access-токен (доступ только к своему `id`).
-- **Назначение:** архивировать пользователя.
-
-**Response:** объект `User` с заполненным `archived_at`.
-
-**Ошибки:**
-
-- `404 NotFound` — если пользователь не найден.
-
-**User (пример):**
-
-```json
-{
-  "id": 1,
-  "display_name": "Sergey",
-  "terms_accepted_at": "2026-01-29T10:16:00.000Z",
-  "privacy_accepted_at": "2026-01-29T10:16:00.000Z",
-  "marketing_opt_in": false,
-  "created_at": "2026-01-29T10:15:30.000Z",
-  "updated_at": "2026-01-29T10:20:00.000Z",
-  "archived_at": null
-}
-```
-
-## Auth
 
 ### POST `/auth/email/start`
 
@@ -300,6 +223,21 @@ curl -X POST http://localhost:3000/addresses/search \
 **Заголовок:**
 
 `Authorization: Bearer <access_token>`
+
+**User (пример):**
+
+```json
+{
+  "id": 1,
+  "display_name": "Sergey",
+  "terms_accepted_at": "2026-01-29T10:16:00.000Z",
+  "privacy_accepted_at": "2026-01-29T10:16:00.000Z",
+  "marketing_opt_in": false,
+  "created_at": "2026-01-29T10:15:30.000Z",
+  "updated_at": "2026-01-29T10:20:00.000Z",
+  "archived_at": null
+}
+```
 
 ## Health
 

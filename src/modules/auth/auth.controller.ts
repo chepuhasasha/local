@@ -10,6 +10,7 @@ import {
 import {
   ApiBearerAuth,
   ApiBody,
+  ApiCreatedResponse,
   ApiOkResponse,
   ApiTags,
 } from '@nestjs/swagger';
@@ -31,6 +32,7 @@ import {
   AuthLogoutRequest,
   AuthLogoutResponse,
 } from '@/modules/auth/dto/auth-logout.dto';
+import { AuthRegisterRequest } from '@/modules/auth/dto/auth-register.dto';
 import { AccessTokenGuard } from '@/modules/auth/guards/access-token.guard';
 import { CurrentUser } from '@/modules/auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '@/modules/auth/types/auth.types';
@@ -44,6 +46,20 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly usersService: UsersService,
   ) {}
+
+  /**
+   * Регистрирует пользователя.
+   */
+  @ApiBody({ type: AuthRegisterRequest })
+  @ApiCreatedResponse({ type: UserDto })
+  @Post('register')
+  async register(@Body() request: AuthRegisterRequest): Promise<UserDto> {
+    return this.authService.registerUser({
+      email: request.email,
+      displayName: request.display_name ?? null,
+      marketingOptIn: request.marketing_opt_in ?? false,
+    });
+  }
 
   /**
    * Запрашивает OTP по email.
