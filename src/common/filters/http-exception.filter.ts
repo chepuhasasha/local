@@ -33,7 +33,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const isHttpException = exception instanceof HttpException;
     const status = isHttpException
       ? exception.getStatus()
-      : this.extractStatusCode(exception) ?? HttpStatus.INTERNAL_SERVER_ERROR;
+      : (this.extractStatusCode(exception) ?? HttpStatus.INTERNAL_SERVER_ERROR);
 
     const responseBody = isHttpException ? exception.getResponse() : null;
     const isServerError = status >= 500;

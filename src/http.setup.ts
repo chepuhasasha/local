@@ -1,9 +1,10 @@
-import type {
-  INestApplication,
-  INestApplicationContext,
-} from '@nestjs/common';
+import type { INestApplication, INestApplicationContext } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import express, { type RequestHandler } from 'express';
+import type {
+  CorsOptions,
+  CustomOrigin,
+} from '@nestjs/common/interfaces/external/cors-options.interface';
 
 import type { AppConfig } from '@/config/configuration';
 
@@ -28,26 +29,26 @@ const createSecurityHeadersMiddleware = (
   };
 };
 
-const buildCorsOptions = (
-  cors: AppConfig['http']['cors'],
-): Parameters<INestApplication['enableCors']>[0] => {
+const buildCorsOptions = (cors: AppConfig['http']['cors']): CorsOptions => {
   const allowedOrigins = cors.allowedOrigins;
   const allowAnyOrigin = allowedOrigins.includes('*');
   const allowedMethods =
     cors.allowedMethods.length > 0 ? cors.allowedMethods.join(',') : undefined;
 
+  const originHandler: CustomOrigin = (origin, callback) => {
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+    if (allowAnyOrigin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+    callback(null, false);
+  };
+
   return {
-    origin: (origin, callback) => {
-      if (!origin) {
-        callback(null, true);
-        return;
-      }
-      if (allowAnyOrigin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-        return;
-      }
-      callback(null, false);
-    },
+    origin: originHandler,
     methods: allowedMethods,
     credentials: cors.allowCredentials,
     optionsSuccessStatus: 204,

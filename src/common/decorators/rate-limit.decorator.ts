@@ -2,12 +2,12 @@ import { Throttle } from '@nestjs/throttler';
 
 import { RATE_LIMIT_DEFAULTS } from '@/common/constants/rate-limit.constants';
 
-export type RateLimitKey =
-  | 'authEmailStart'
-  | 'authEmailVerify'
-  | 'authRefresh';
+export type RateLimitKey = 'authEmailStart' | 'authEmailVerify' | 'authRefresh';
 
-const parsePositiveInt = (value: string | undefined, fallback: number): number => {
+const parsePositiveInt = (
+  value: string | undefined,
+  fallback: number,
+): number => {
   if (!value) {
     return fallback;
   }

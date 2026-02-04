@@ -13,6 +13,17 @@ import { RequestIdInterceptor } from '@/common/interceptors/request-id.intercept
 import { AppLoggerService } from '@/infrastructure/observability/logger.service';
 import { setupHttp } from '@/http.setup';
 
+type TrustProxyAdapter = {
+  set: (setting: string, value: unknown) => void;
+};
+
+const isTrustProxyAdapter = (value: unknown): value is TrustProxyAdapter => {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  return typeof (value as TrustProxyAdapter).set === 'function';
+};
+
 /**
  * Настраивает Swagger UI.
  */
@@ -93,8 +104,8 @@ async function bootstrap(): Promise<void> {
 
   const rateLimitConfig = getRateLimitConfig(app);
   if (rateLimitConfig.trustProxy) {
-    const adapter = app.getHttpAdapter().getInstance();
-    if (adapter?.set) {
+    const adapter = app.getHttpAdapter().getInstance() as unknown;
+    if (isTrustProxyAdapter(adapter)) {
       adapter.set('trust proxy', 1);
     }
   }

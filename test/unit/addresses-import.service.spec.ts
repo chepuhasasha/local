@@ -396,14 +396,12 @@ describe('AddressesImportService import flow', () => {
     const qr = {
       query: jest.fn().mockResolvedValue([{ locked: true }]),
     };
-    await expect(
-      (service as any).tryAcquireImportLock(qr),
-    ).resolves.toBe(true);
+    await expect((service as any).tryAcquireImportLock(qr)).resolves.toBe(true);
 
     qr.query.mockResolvedValueOnce([{ locked: 'no' }]);
-    await expect(
-      (service as any).tryAcquireImportLock(qr),
-    ).resolves.toBe(false);
+    await expect((service as any).tryAcquireImportLock(qr)).resolves.toBe(
+      false,
+    );
   });
 
   it('swaps tables in a transaction', async () => {
@@ -499,9 +497,7 @@ describe('AddressesImportService import flow', () => {
   it('downloads a file and reports progress', async () => {
     const { service } = makeServiceWithDataSource();
 
-    jest
-      .spyOn(service as any, 'headContentLength')
-      .mockResolvedValue(4);
+    jest.spyOn(service as any, 'headContentLength').mockResolvedValue(4);
 
     const req = new PassThrough() as PassThrough & {
       setTimeout: jest.Mock;
@@ -557,9 +553,7 @@ describe('AddressesImportService import flow', () => {
 
     const { service } = makeServiceWithDataSource({ dataSource });
 
-    jest
-      .spyOn(fs.promises, 'mkdtemp')
-      .mockResolvedValue('/tmp/addr-test');
+    jest.spyOn(fs.promises, 'mkdtemp').mockResolvedValue('/tmp/addr-test');
     jest.spyOn(fs.promises, 'rm').mockResolvedValue(undefined);
 
     jest
@@ -574,25 +568,23 @@ describe('AddressesImportService import flow', () => {
       dropIndexesDuringImport: true,
       countLinesForPercent: true,
     });
-    jest.spyOn(service as any, 'getImportModeFromEnv').mockReturnValue('upsert');
+    jest
+      .spyOn(service as any, 'getImportModeFromEnv')
+      .mockReturnValue('upsert');
     jest
       .spyOn(service as any, 'buildZipUrl')
       .mockReturnValue('http://example.com/file.zip');
     const setImportStateSpy = jest
       .spyOn(service as any, 'setImportState')
       .mockResolvedValue(undefined);
-    jest
-      .spyOn(service as any, 'prepareNextTable')
-      .mockResolvedValue(undefined);
+    jest.spyOn(service as any, 'prepareNextTable').mockResolvedValue(undefined);
     jest
       .spyOn(service as any, 'downloadToFileWithProgress')
       .mockResolvedValue(undefined);
     const dropIndexesSpy = jest
       .spyOn(service as any, 'dropIndexes')
       .mockResolvedValue(undefined);
-    jest
-      .spyOn(service as any, 'countTotalBuildLines')
-      .mockResolvedValue(3);
+    jest.spyOn(service as any, 'countTotalBuildLines').mockResolvedValue(3);
 
     const roadEntry = {
       path: 'road_code_total.txt',
@@ -629,9 +621,7 @@ describe('AddressesImportService import flow', () => {
         return { processedLines: 2 };
       });
 
-    jest
-      .spyOn(service as any, 'getAddressesCountExact')
-      .mockResolvedValue(10n);
+    jest.spyOn(service as any, 'getAddressesCountExact').mockResolvedValue(10n);
     const ensureIndexesSpy = jest
       .spyOn(service as any, 'ensureIndexes')
       .mockResolvedValue(undefined);
@@ -671,9 +661,7 @@ describe('AddressesImportService import flow', () => {
 
     const { service } = makeServiceWithDataSource({ dataSource });
 
-    jest
-      .spyOn(fs.promises, 'mkdtemp')
-      .mockResolvedValue('/tmp/addr-test');
+    jest.spyOn(fs.promises, 'mkdtemp').mockResolvedValue('/tmp/addr-test');
     jest.spyOn(fs.promises, 'rm').mockResolvedValue(undefined);
 
     jest
@@ -688,16 +676,16 @@ describe('AddressesImportService import flow', () => {
       dropIndexesDuringImport: false,
       countLinesForPercent: false,
     });
-    jest.spyOn(service as any, 'getImportModeFromEnv').mockReturnValue('upsert');
+    jest
+      .spyOn(service as any, 'getImportModeFromEnv')
+      .mockReturnValue('upsert');
     jest
       .spyOn(service as any, 'buildZipUrl')
       .mockReturnValue('http://example.com/file.zip');
     const setImportStateSpy = jest
       .spyOn(service as any, 'setImportState')
       .mockResolvedValue(undefined);
-    jest
-      .spyOn(service as any, 'prepareNextTable')
-      .mockResolvedValue(undefined);
+    jest.spyOn(service as any, 'prepareNextTable').mockResolvedValue(undefined);
     jest
       .spyOn(service as any, 'downloadToFileWithProgress')
       .mockResolvedValue(undefined);
@@ -731,12 +719,8 @@ describe('AddressesImportService import flow', () => {
         params.onLineProcessed();
         return { processedLines: 1 };
       });
-    jest
-      .spyOn(service as any, 'insertDocuments')
-      .mockResolvedValue(undefined);
-    jest
-      .spyOn(service as any, 'getAddressesCountExact')
-      .mockResolvedValue(0n);
+    jest.spyOn(service as any, 'insertDocuments').mockResolvedValue(undefined);
+    jest.spyOn(service as any, 'getAddressesCountExact').mockResolvedValue(0n);
 
     await expect((service as any).loadAddresses('202602')).rejects.toThrow(
       'Shadow table is empty after import.',

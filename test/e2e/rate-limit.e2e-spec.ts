@@ -56,26 +56,14 @@ describe('Rate limit e2e', () => {
   });
 
   it('limits /auth/email/start and снимает блокировку после окна', async () => {
-    await request(server)
-      .post('/auth/email/start')
-      .send({ email })
-      .expect(201);
+    await request(server).post('/auth/email/start').send({ email }).expect(201);
 
-    await request(server)
-      .post('/auth/email/start')
-      .send({ email })
-      .expect(201);
+    await request(server).post('/auth/email/start').send({ email }).expect(201);
 
-    await request(server)
-      .post('/auth/email/start')
-      .send({ email })
-      .expect(429);
+    await request(server).post('/auth/email/start').send({ email }).expect(429);
 
     await sleep(1100);
 
-    await request(server)
-      .post('/auth/email/start')
-      .send({ email })
-      .expect(201);
+    await request(server).post('/auth/email/start').send({ email }).expect(201);
   });
 });

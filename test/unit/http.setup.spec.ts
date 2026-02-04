@@ -49,9 +49,15 @@ describe('setupHttp', () => {
     const next = jest.fn();
     securityMiddleware({}, res, next);
 
-    expect(res.setHeader).toHaveBeenCalledWith('X-Content-Type-Options', 'nosniff');
+    expect(res.setHeader).toHaveBeenCalledWith(
+      'X-Content-Type-Options',
+      'nosniff',
+    );
     expect(res.setHeader).toHaveBeenCalledWith('X-Frame-Options', 'DENY');
-    expect(res.setHeader).toHaveBeenCalledWith('Referrer-Policy', 'no-referrer');
+    expect(res.setHeader).toHaveBeenCalledWith(
+      'Referrer-Policy',
+      'no-referrer',
+    );
     expect(res.setHeader).toHaveBeenCalledWith(
       'Content-Security-Policy',
       "default-src 'none'",
