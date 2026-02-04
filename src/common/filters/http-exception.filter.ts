@@ -33,7 +33,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const isHttpException = exception instanceof HttpException;
     const status = isHttpException
       ? exception.getStatus()
-      : HttpStatus.INTERNAL_SERVER_ERROR;
+      : this.extractStatusCode(exception) ?? HttpStatus.INTERNAL_SERVER_ERROR;
 
     const responseBody = isHttpException ? exception.getResponse() : null;
     const isServerError = status >= 500;
@@ -89,6 +89,23 @@ export class HttpExceptionFilter implements ExceptionFilter {
     }
 
     return 'Internal server error';
+  }
+
+  /**
+   * Извлекает статусный код из нестандартных ошибок (например, body-parser).
+   */
+  private extractStatusCode(exception: unknown): number | null {
+    if (!exception || typeof exception !== 'object') {
+      return null;
+    }
+
+    const record = exception as Record<string, unknown>;
+    const status = record.status ?? record.statusCode;
+    if (typeof status === 'number' && Number.isFinite(status)) {
+      return status;
+    }
+
+    return null;
   }
 
   /**

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { HTTP_DEFAULTS } from '@/common/constants/http.constants';
 import { RATE_LIMIT_DEFAULTS } from '@/common/constants/rate-limit.constants';
 
 const emptyToUndefined = (value: unknown): unknown => {
@@ -11,6 +12,9 @@ const emptyToUndefined = (value: unknown): unknown => {
 
 const optionalString = () =>
   z.preprocess(emptyToUndefined, z.string().min(1).optional());
+
+const stringWithDefault = (value: string) =>
+  z.preprocess(emptyToUndefined, z.string().min(1).default(value));
 
 const optionalNumber = (min: number, max: number) =>
   z.preprocess(
@@ -35,6 +39,9 @@ const parseBoolean = (value: unknown): unknown => {
 
 const optionalBoolean = () =>
   z.preprocess(parseBoolean, z.boolean().optional());
+
+const booleanWithDefault = (value: boolean) =>
+  z.preprocess(parseBoolean, z.boolean().default(value));
 
 /**
  * Схема переменных окружения приложения.
@@ -113,6 +120,21 @@ export const envSchema = z
     MAILER_FROM: optionalString(),
     MAILER_SECURE: optionalBoolean(),
     SWAGGER_ENABLED: optionalBoolean(),
+    CORS_ALLOWED_ORIGINS: optionalString(),
+    CORS_ALLOWED_METHODS: stringWithDefault(
+      HTTP_DEFAULTS.corsAllowedMethods.join(','),
+    ),
+    CORS_ALLOW_CREDENTIALS: booleanWithDefault(false),
+    HTTP_JSON_BODY_LIMIT_BYTES: z.coerce
+      .number()
+      .int()
+      .min(1024)
+      .default(HTTP_DEFAULTS.jsonBodyLimitBytes),
+    HTTP_URLENCODED_BODY_LIMIT_BYTES: z.coerce
+      .number()
+      .int()
+      .min(1024)
+      .default(HTTP_DEFAULTS.urlencodedBodyLimitBytes),
     HEALTH_DB_TIMEOUT_MS: z.coerce.number().int().min(1).optional(),
     ADDRESS_DATA_MONTH: z
       .string()

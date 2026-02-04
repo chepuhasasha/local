@@ -65,4 +65,31 @@ describe('HttpExceptionFilter', () => {
       }),
     );
   });
+
+  it('preserves status code from non-HttpException errors', () => {
+    const logger = { warn: jest.fn(), error: jest.fn() };
+    const filter = new HttpExceptionFilter(logger as any);
+
+    const response = {
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn(),
+    };
+    const request = { url: '/test' };
+    const error = Object.assign(new Error('too large'), { status: 413 });
+
+    requestContext.run('req-3', () => {
+      filter.catch(error, makeHost(request, response) as any);
+    });
+
+    expect(logger.warn).toHaveBeenCalled();
+    expect(response.status).toHaveBeenCalledWith(413);
+    expect(response.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        statusCode: 413,
+        message: 'too large',
+        error: 'Error',
+        requestId: 'req-3',
+      }),
+    );
+  });
 });

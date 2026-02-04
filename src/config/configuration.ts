@@ -1,4 +1,20 @@
+import { HTTP_DEFAULTS } from '@/common/constants/http.constants';
 import { envSchema } from './env.schema';
+
+const parseCsv = (value?: string): string[] => {
+  if (!value) {
+    return [];
+  }
+  return value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+};
+
+const parseMethods = (value?: string): string[] => {
+  const methods = parseCsv(value).map((method) => method.toUpperCase());
+  return Array.from(new Set(methods));
+};
 
 /**
  * Формирует объект конфигурации приложения из переменных окружения.
@@ -55,6 +71,23 @@ export const configuration = () => {
       password: env.MAILER_PASSWORD ?? null,
       from: env.MAILER_FROM ?? null,
       secure: env.MAILER_SECURE ?? false,
+    },
+    http: {
+      securityHeaders: {
+        contentSecurityPolicy: HTTP_DEFAULTS.contentSecurityPolicy,
+      },
+      cors: {
+        allowedOrigins: parseCsv(env.CORS_ALLOWED_ORIGINS),
+        allowedMethods: parseMethods(env.CORS_ALLOWED_METHODS),
+        allowCredentials: env.CORS_ALLOW_CREDENTIALS ?? false,
+      },
+      bodyParser: {
+        jsonLimitBytes:
+          env.HTTP_JSON_BODY_LIMIT_BYTES ?? HTTP_DEFAULTS.jsonBodyLimitBytes,
+        urlencodedLimitBytes:
+          env.HTTP_URLENCODED_BODY_LIMIT_BYTES ??
+          HTTP_DEFAULTS.urlencodedBodyLimitBytes,
+      },
     },
     addressesImport: {
       month: env.ADDRESS_DATA_MONTH ?? null,

@@ -24,6 +24,11 @@ Last reviewed: 2026-02-04
 | `PORT` | `1..65535` | нет | `3000` | HTTP порт API. |
 | `LOG_LEVEL` | ``log | error | warn | debug | verbose`` | нет | `log` | Уровень логирования. |
 | `SWAGGER_ENABLED` | boolean | нет | `true` (non-production), `false` (production) | Включает Swagger UI `/docs`. |
+| `CORS_ALLOWED_ORIGINS` | string (CSV) | нет | — | Разрешённые origins через запятую. Если пусто, CORS фактически выключен; если содержит `*`, разрешены все. |
+| `CORS_ALLOWED_METHODS` | string (CSV) | нет | `GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS` | Разрешённые методы для CORS. |
+| `CORS_ALLOW_CREDENTIALS` | boolean | нет | `false` | Разрешить credentials в CORS. |
+| `HTTP_JSON_BODY_LIMIT_BYTES` | int (>=1024) | нет | `1048576` | Максимальный размер JSON body в байтах. |
+| `HTTP_URLENCODED_BODY_LIMIT_BYTES` | int (>=1024) | нет | `102400` | Максимальный размер `application/x-www-form-urlencoded` body в байтах. |
 | `POSTGRES_HOST` | string | да | — | Хост PostgreSQL. |
 | `POSTGRES_PORT` | `1..65535` | да | — | Порт PostgreSQL. |
 | `POSTGRES_USER` | string | да | — | Пользователь PostgreSQL. |

@@ -42,10 +42,12 @@ describe('env validation', () => {
       MAILER_SECURE: 'false',
       ADDRESS_DROP_INDEXES: 'true',
       SWAGGER_ENABLED: '0',
+      CORS_ALLOW_CREDENTIALS: 'true',
     });
 
     expect(result.MAILER_SECURE).toBe(false);
     expect(result.ADDRESS_DROP_INDEXES).toBe(true);
     expect(result.SWAGGER_ENABLED).toBe(false);
+    expect(result.CORS_ALLOW_CREDENTIALS).toBe(true);
   });
 });

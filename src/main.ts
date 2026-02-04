@@ -11,6 +11,7 @@ import type { AppConfig } from '@/config/configuration';
 import { HttpExceptionFilter } from '@/common/filters/http-exception.filter';
 import { RequestIdInterceptor } from '@/common/interceptors/request-id.interceptor';
 import { AppLoggerService } from '@/infrastructure/observability/logger.service';
+import { setupHttp } from '@/http.setup';
 
 /**
  * Настраивает Swagger UI.
@@ -101,6 +102,7 @@ async function bootstrap(): Promise<void> {
   app.useLogger(app.get(AppLoggerService));
   app.enableShutdownHooks();
 
+  setupHttp(app);
   setupApp(app);
   if (isSwaggerEnabled(app)) {
     setupSwagger(app);
