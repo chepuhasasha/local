@@ -17,7 +17,7 @@ Last reviewed: 2026-02-04
 2. Запустите импорт адресов.
 
 ## Текущее состояние
-- Добавлены миграции для доменных таблиц (`users`, `auth_identity`, `auth_otp`, `auth_session`).
+- Добавлены миграции для доменных таблиц (`users`, `auth_identity` с `password_hash`, `auth_otp`, `auth_session`).
 - Таблицы адресов создаются процессом CLI импорта.
 - `TypeORM` ищет миграции в `src/infrastructure/database/migrations` и `dist/infrastructure/database/migrations`.
 

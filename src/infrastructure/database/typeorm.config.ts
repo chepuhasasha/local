@@ -22,6 +22,10 @@ const buildOptions = (
   params: BuildOptionsParams = {},
 ): DataSourceOptions => {
   const includeMigrations = params.includeMigrations ?? true;
+  const isTsRuntime =
+    __filename.endsWith('.ts') ||
+    Boolean(process.env.TS_NODE) ||
+    Boolean(process.env.TS_NODE_PROJECT);
   const baseOptions = {
     entities: [
       AddressEntity,
@@ -31,10 +35,9 @@ const buildOptions = (
       AuthSessionEntity,
     ],
     migrations: includeMigrations
-      ? [
-          'dist/infrastructure/database/migrations/*.{js,ts}',
-          'src/infrastructure/database/migrations/*.{js,ts}',
-        ]
+      ? isTsRuntime
+        ? ['src/infrastructure/database/migrations/*.{js,ts}']
+        : ['dist/infrastructure/database/migrations/*.{js,ts}']
       : [],
     migrationsTableName: 'migrations',
   };

@@ -134,6 +134,8 @@ Last reviewed: 2026-02-04
 | `user_id` | `user_id` | `bigint` | нет | Ссылка на пользователя. |
 | `provider` | `provider` | `auth_provider` | нет | Провайдер (`EMAIL`). |
 | `provider_user_id` | `provider_user_id` | `text` | нет | Email пользователя. |
+| `password_hash` | `password_hash` | `text` | да | Хэш пароля (scrypt + соль). |
+| `password_updated_at` | `password_updated_at` | `timestamptz` | да | Дата обновления пароля. |
 | `is_verified` | `is_verified` | `boolean` | нет | Флаг верификации. |
 | `verified_at` | `verified_at` | `timestamptz` | да | Дата верификации. |
 | `created_at` | `created_at` | `timestamptz` | нет | Дата создания. |

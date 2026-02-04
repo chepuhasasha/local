@@ -4,6 +4,7 @@ import request from 'supertest';
 
 import type { AuthEmailStartResponse } from '@/modules/auth/dto/auth-email-start.dto';
 import type { AuthEmailVerifyResponse } from '@/modules/auth/dto/auth-email-verify.dto';
+import type { AuthPasswordLoginResponse } from '@/modules/auth/dto/auth-password-login.dto';
 import type { AuthRefreshResponse } from '@/modules/auth/dto/auth-refresh.dto';
 import type { AuthLogoutResponse } from '@/modules/auth/dto/auth-logout.dto';
 import type { UserDto } from '@/modules/users/dto/user.dto';
@@ -30,6 +31,8 @@ describe('Auth e2e', () => {
   let refreshToken: string;
   let sessionId: number;
   let userId: number;
+  let password: string;
+  let passwordAccessToken: string;
 
   beforeAll(async () => {
     setupEnv();
@@ -44,6 +47,7 @@ describe('Auth e2e', () => {
     server = app.getHttpServer() as unknown as Parameters<typeof request>[0];
     const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
     email = `e2e-${unique}@example.com`;
+    password = `S3cretPass-${unique}`;
   });
 
   afterAll(async () => {
@@ -57,6 +61,7 @@ describe('Auth e2e', () => {
         email,
         display_name: 'E2E Tester',
         marketing_opt_in: true,
+        password,
       })
       .expect(201);
 
@@ -74,6 +79,33 @@ describe('Auth e2e', () => {
     expect(body.updated_at).toEqual(expect.any(String));
 
     userId = body.id;
+  });
+
+  it('POST /auth/password/login авторизует по паролю', async () => {
+    const response = await request(server)
+      .post('/auth/password/login')
+      .send({ email, password })
+      .expect(201);
+
+    const body = getBody<AuthPasswordLoginResponse>(response);
+
+    expect(body.user_id).toEqual(expect.any(Number));
+    expect(body.session_id).toEqual(expect.any(Number));
+    expect(body.access_token).toEqual(expect.any(String));
+    expect(body.refresh_token).toEqual(expect.any(String));
+
+    passwordAccessToken = body.access_token;
+  });
+
+  it('GET /auth/me принимает токен от логина по паролю', async () => {
+    const response = await request(server)
+      .get('/auth/me')
+      .set('Authorization', `Bearer ${passwordAccessToken}`)
+      .expect(200);
+
+    const body = getBody<UserDto>(response);
+
+    expect(body.id).toBe(userId);
   });
 
   it('POST /auth/email/start выдаёт OTP', async () => {

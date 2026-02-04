@@ -2,7 +2,11 @@ import { Throttle } from '@nestjs/throttler';
 
 import { RATE_LIMIT_DEFAULTS } from '@/common/constants/rate-limit.constants';
 
-export type RateLimitKey = 'authEmailStart' | 'authEmailVerify' | 'authRefresh';
+export type RateLimitKey =
+  | 'authEmailStart'
+  | 'authEmailVerify'
+  | 'authPasswordLogin'
+  | 'authRefresh';
 
 const parsePositiveInt = (
   value: string | undefined,
@@ -38,6 +42,12 @@ const ruleMap: Record<
     limitEnv: 'THROTTLE_AUTH_EMAIL_VERIFY_LIMIT',
     fallbackTtl: RATE_LIMIT_DEFAULTS.authEmailVerifyTtlSeconds,
     fallbackLimit: RATE_LIMIT_DEFAULTS.authEmailVerifyLimit,
+  },
+  authPasswordLogin: {
+    ttlEnv: 'THROTTLE_AUTH_PASSWORD_LOGIN_TTL_SECONDS',
+    limitEnv: 'THROTTLE_AUTH_PASSWORD_LOGIN_LIMIT',
+    fallbackTtl: RATE_LIMIT_DEFAULTS.authPasswordLoginTtlSeconds,
+    fallbackLimit: RATE_LIMIT_DEFAULTS.authPasswordLoginLimit,
   },
   authRefresh: {
     ttlEnv: 'THROTTLE_AUTH_REFRESH_TTL_SECONDS',

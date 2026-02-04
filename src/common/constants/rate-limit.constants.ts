@@ -5,6 +5,8 @@ export const RATE_LIMIT_DEFAULTS = {
   authEmailStartLimit: 5,
   authEmailVerifyTtlSeconds: 300,
   authEmailVerifyLimit: 10,
+  authPasswordLoginTtlSeconds: 300,
+  authPasswordLoginLimit: 10,
   authRefreshTtlSeconds: 60,
   authRefreshLimit: 30,
 };

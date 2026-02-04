@@ -1,4 +1,15 @@
 import {
+  type BinaryLike,
+  createHash,
+  randomBytes,
+  randomInt,
+  scrypt,
+  type ScryptOptions,
+  timingSafeEqual,
+} from 'crypto';
+import { promisify } from 'util';
+
+import {
   BadRequestException,
   HttpException,
   HttpStatus,
@@ -7,7 +18,6 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHash, randomBytes, randomInt, timingSafeEqual } from 'crypto';
 import jwt, { JsonWebTokenError, type JwtPayload } from 'jsonwebtoken';
 
 import { AuthIdentitiesRepository } from '@/modules/auth/repositories/auth-identities.repository';
@@ -27,6 +37,20 @@ import type {
 } from '@/modules/auth/types/auth.types';
 
 const REFRESH_TOKEN_BYTES = 32;
+const PASSWORD_HASH_PREFIX = 'scrypt';
+const PASSWORD_SCRYPT_N = 16384;
+const PASSWORD_SCRYPT_R = 8;
+const PASSWORD_SCRYPT_P = 1;
+const PASSWORD_SALT_BYTES = 16;
+const PASSWORD_KEY_LENGTH = 64;
+type ScryptAsync = (
+  password: BinaryLike,
+  salt: BinaryLike,
+  keylen: number,
+  options?: ScryptOptions,
+) => Promise<Buffer>;
+
+const scryptAsync = promisify(scrypt) as ScryptAsync;
 
 @Injectable()
 export class AuthService {
@@ -51,6 +75,7 @@ export class AuthService {
     email: string;
     displayName?: string | null;
     marketingOptIn?: boolean;
+    password?: string | null;
   }): Promise<UserDto> {
     const normalizedEmail = this.normalizeEmail(params.email);
     const existingIdentity =
@@ -71,12 +96,16 @@ export class AuthService {
       privacy_accepted_at: acceptedAt,
     });
 
-    await this.createIdentity({
+    const identity = await this.createIdentity({
       userId: user.id,
       provider: AuthProvider.Email,
       providerUserId: normalizedEmail,
       isVerified: false,
     });
+
+    if (params.password) {
+      await this.setIdentityPassword(identity, params.password);
+    }
 
     return user;
   }
@@ -192,6 +221,67 @@ export class AuthService {
         userId: identity.user_id,
         sessionId: session.id,
         expiresInSeconds: authConfig.accessTtlSeconds,
+      }),
+      refreshToken,
+    };
+  }
+
+  /**
+   * Авторизует пользователя по email и паролю.
+   */
+  async loginWithPassword(params: {
+    email: string;
+    password: string;
+  }): Promise<{
+    userId: number;
+    sessionId: number;
+    accessToken: string;
+    refreshToken: string;
+  }> {
+    const normalizedEmail = this.normalizeEmail(params.email);
+
+    const identity = await this.identitiesRepository.findActiveByProvider(
+      AuthProvider.Email,
+      normalizedEmail,
+    );
+
+    if (!identity?.password_hash) {
+      throw new UnauthorizedException('Неверный email или пароль.');
+    }
+
+    let user: UserDto;
+    try {
+      user = await this.usersService.getById(identity.user_id);
+    } catch {
+      throw new UnauthorizedException('Пользователь не найден.');
+    }
+
+    if (user.archived_at) {
+      throw new UnauthorizedException('Пользователь архивирован.');
+    }
+
+    const isValid = await this.verifyPassword(
+      params.password,
+      identity.password_hash,
+    );
+
+    if (!isValid) {
+      throw new UnauthorizedException('Неверный email или пароль.');
+    }
+
+    const refreshToken = this.generateRefreshToken();
+    const session = await this.createSession({
+      userId: identity.user_id,
+      refreshHash: this.hashSecret(refreshToken),
+    });
+
+    return {
+      userId: identity.user_id,
+      sessionId: session.id,
+      accessToken: this.issueAccessToken({
+        userId: identity.user_id,
+        sessionId: session.id,
+        expiresInSeconds: this.authConfig.accessTtlSeconds,
       }),
       refreshToken,
     };
@@ -348,6 +438,15 @@ export class AuthService {
     return this.identitiesRepository.save(identity);
   }
 
+  private async setIdentityPassword(
+    identity: AuthIdentityEntity,
+    password: string,
+  ): Promise<AuthIdentityEntity> {
+    identity.password_hash = await this.hashPassword(password);
+    identity.password_updated_at = new Date();
+    return this.identitiesRepository.save(identity);
+  }
+
   async createOtp(params: {
     identityId: number;
     codeHash: string;
@@ -440,6 +539,99 @@ export class AuthService {
 
   private hashSecret(secret: string): string {
     return createHash('sha256').update(secret).digest('hex');
+  }
+
+  private async hashPassword(password: string): Promise<string> {
+    const salt = randomBytes(PASSWORD_SALT_BYTES);
+    const hash = (await scryptAsync(password, salt, PASSWORD_KEY_LENGTH, {
+      N: PASSWORD_SCRYPT_N,
+      r: PASSWORD_SCRYPT_R,
+      p: PASSWORD_SCRYPT_P,
+    })) as Buffer;
+
+    return [
+      PASSWORD_HASH_PREFIX,
+      PASSWORD_SCRYPT_N,
+      PASSWORD_SCRYPT_R,
+      PASSWORD_SCRYPT_P,
+      salt.toString('hex'),
+      hash.toString('hex'),
+    ].join('$');
+  }
+
+  private async verifyPassword(
+    password: string,
+    storedHash: string,
+  ): Promise<boolean> {
+    const parsed = this.parsePasswordHash(storedHash);
+    if (!parsed) {
+      return false;
+    }
+
+    try {
+      const derived = (await scryptAsync(
+        password,
+        parsed.salt,
+        parsed.hash.length,
+        {
+          N: parsed.N,
+          r: parsed.r,
+          p: parsed.p,
+        },
+      )) as Buffer;
+
+      if (derived.length !== parsed.hash.length) {
+        return false;
+      }
+
+      return timingSafeEqual(parsed.hash, derived);
+    } catch {
+      return false;
+    }
+  }
+
+  private parsePasswordHash(
+    storedHash: string,
+  ): {
+    N: number;
+    r: number;
+    p: number;
+    salt: Buffer;
+    hash: Buffer;
+  } | null {
+    const parts = storedHash.split('$');
+    if (parts.length !== 6) {
+      return null;
+    }
+
+    const [prefix, nRaw, rRaw, pRaw, saltRaw, hashRaw] = parts;
+    if (prefix !== PASSWORD_HASH_PREFIX) {
+      return null;
+    }
+
+    const N = Number(nRaw);
+    const r = Number(rRaw);
+    const p = Number(pRaw);
+    if (!Number.isFinite(N) || !Number.isFinite(r) || !Number.isFinite(p)) {
+      return null;
+    }
+
+    if (
+      !saltRaw ||
+      !hashRaw ||
+      saltRaw.length % 2 !== 0 ||
+      hashRaw.length % 2 !== 0
+    ) {
+      return null;
+    }
+
+    const salt = Buffer.from(saltRaw, 'hex');
+    const hash = Buffer.from(hashRaw, 'hex');
+    if (!salt.length || !hash.length) {
+      return null;
+    }
+
+    return { N, r, p, salt, hash };
   }
 
   private safeEqual(a: string, b: string): boolean {

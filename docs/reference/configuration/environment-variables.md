@@ -48,6 +48,8 @@ Last reviewed: 2026-02-04
 | `THROTTLE_AUTH_EMAIL_START_LIMIT` | int (>=1) | нет | `5` | Лимит запросов для `/auth/email/start`. |
 | `THROTTLE_AUTH_EMAIL_VERIFY_TTL_SECONDS` | int (>=1) | нет | `300` | Окно rate limit для `/auth/email/verify` (сек). |
 | `THROTTLE_AUTH_EMAIL_VERIFY_LIMIT` | int (>=1) | нет | `10` | Лимит запросов для `/auth/email/verify`. |
+| `THROTTLE_AUTH_PASSWORD_LOGIN_TTL_SECONDS` | int (>=1) | нет | `300` | Окно rate limit для `/auth/password/login` (сек). |
+| `THROTTLE_AUTH_PASSWORD_LOGIN_LIMIT` | int (>=1) | нет | `10` | Лимит запросов для `/auth/password/login`. |
 | `THROTTLE_AUTH_REFRESH_TTL_SECONDS` | int (>=1) | нет | `60` | Окно rate limit для `/auth/refresh` (сек). |
 | `THROTTLE_AUTH_REFRESH_LIMIT` | int (>=1) | нет | `30` | Лимит запросов для `/auth/refresh`. |
 | `THROTTLE_TRUST_PROXY` | boolean | нет | `false` | Включает `trust proxy` для корректной работы rate limit за балансировщиком. |

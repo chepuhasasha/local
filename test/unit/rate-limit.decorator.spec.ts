@@ -39,4 +39,14 @@ describe('RateLimit decorator', () => {
     expect(options.default.ttl()).toBe(3000);
     expect(options.default.limit()).toBe(7);
   });
+
+  it('uses env values for password login', () => {
+    process.env.THROTTLE_AUTH_PASSWORD_LOGIN_TTL_SECONDS = '120';
+    process.env.THROTTLE_AUTH_PASSWORD_LOGIN_LIMIT = '4';
+
+    const options = RateLimit('authPasswordLogin') as any;
+
+    expect(options.default.ttl()).toBe(120000);
+    expect(options.default.limit()).toBe(4);
+  });
 });

@@ -60,6 +60,9 @@ export const configuration = () => {
       authEmailStartLimit: env.THROTTLE_AUTH_EMAIL_START_LIMIT,
       authEmailVerifyTtlSeconds: env.THROTTLE_AUTH_EMAIL_VERIFY_TTL_SECONDS,
       authEmailVerifyLimit: env.THROTTLE_AUTH_EMAIL_VERIFY_LIMIT,
+      authPasswordLoginTtlSeconds:
+        env.THROTTLE_AUTH_PASSWORD_LOGIN_TTL_SECONDS,
+      authPasswordLoginLimit: env.THROTTLE_AUTH_PASSWORD_LOGIN_LIMIT,
       authRefreshTtlSeconds: env.THROTTLE_AUTH_REFRESH_TTL_SECONDS,
       authRefreshLimit: env.THROTTLE_AUTH_REFRESH_LIMIT,
       trustProxy: env.THROTTLE_TRUST_PROXY ?? false,

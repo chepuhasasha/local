@@ -7,6 +7,7 @@ const makeController = () => {
     registerUser: jest.fn(),
     startEmailAuth: jest.fn(),
     verifyEmailOtp: jest.fn(),
+    loginWithPassword: jest.fn(),
     refreshSession: jest.fn(),
     logoutSession: jest.fn(),
   };
@@ -37,6 +38,7 @@ describe('AuthController', () => {
       email: 'user@example.com',
       displayName: 'Neo',
       marketingOptIn: true,
+      password: null,
     });
   });
 
@@ -79,6 +81,32 @@ describe('AuthController', () => {
       session_id: 20,
       access_token: 'access',
       refresh_token: 'refresh',
+    });
+  });
+
+  it('logs in with password', async () => {
+    const { controller, authService } = makeController();
+    authService.loginWithPassword.mockResolvedValue({
+      userId: 10,
+      sessionId: 20,
+      accessToken: 'access',
+      refreshToken: 'refresh',
+    });
+
+    const result = await controller.loginPassword({
+      email: 'user@example.com',
+      password: 'Secret123!',
+    } as any);
+
+    expect(result).toEqual({
+      user_id: 10,
+      session_id: 20,
+      access_token: 'access',
+      refresh_token: 'refresh',
+    });
+    expect(authService.loginWithPassword).toHaveBeenCalledWith({
+      email: 'user@example.com',
+      password: 'Secret123!',
     });
   });
 

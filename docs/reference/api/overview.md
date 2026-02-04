@@ -35,7 +35,7 @@ Last reviewed: 2026-02-04
 
 ## Rate limiting
 - Глобальный лимит по умолчанию: `THROTTLE_DEFAULT_TTL_SECONDS` и `THROTTLE_DEFAULT_LIMIT`.
-- Для `/auth/email/start`, `/auth/email/verify`, `/auth/refresh` применяются отдельные лимиты.
+- Для `/auth/email/start`, `/auth/email/verify`, `/auth/password/login`, `/auth/refresh` применяются отдельные лимиты.
 - Внутри Auth также действует лимит OTP (cooldown + окно).
 
 ## Формат ошибок

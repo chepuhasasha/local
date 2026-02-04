@@ -133,6 +133,7 @@ curl -X POST http://localhost:3000/addresses/search \
 | `email` | `string` | email | — |
 | `display_name` | ``string | null`` | optional | `null` |
 | `marketing_opt_in` | `boolean` | optional | `false` |
+| `password` | `string` | optional, `8..128` | — |
 
 **Response (201):** объект `User`.
 
@@ -190,6 +191,31 @@ curl -X POST http://localhost:3000/addresses/search \
 - `400 BadRequest` — неверный или просроченный код.
 - `404 NotFound` — identity не найдена.
 - `401 Unauthorized` — пользователь не найден или архивирован.
+- `429 Too Many Requests` — превышен лимит throttler.
+
+### POST `/auth/password/login`
+- **Auth:** отсутствует.
+- **Назначение:** вход по email и паролю.
+- **Rate limit:** отдельный лимит `THROTTLE_AUTH_PASSWORD_LOGIN_*`.
+
+**Request DTO:** `AuthPasswordLoginRequest`
+
+| Поле | Тип | Валидация |
+| --- | --- | --- |
+| `email` | `string` | email |
+| `password` | `string` | длина `8..128` |
+
+**Response (200):** `AuthPasswordLoginResponse`
+
+| Поле | Тип | Описание |
+| --- | --- | --- |
+| `user_id` | `number` | Пользователь |
+| `session_id` | `number` | Сессия |
+| `access_token` | `string` | Access-токен |
+| `refresh_token` | `string` | Refresh-токен |
+
+**Ошибки:**
+- `401 Unauthorized` — неверный email или пароль, пользователь не найден или архивирован.
 - `429 Too Many Requests` — превышен лимит throttler.
 
 ### POST `/auth/refresh`

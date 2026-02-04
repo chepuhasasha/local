@@ -88,6 +88,8 @@ const buildIdentity = (overrides: Partial<Record<string, unknown>> = {}) => ({
   user_id: 10,
   provider: AuthProvider.Email,
   provider_user_id: 'user@example.com',
+  password_hash: null,
+  password_updated_at: null,
   is_verified: false,
   verified_at: null,
   archived_at: null,
@@ -156,6 +158,24 @@ describe('AuthService', () => {
         is_verified: false,
       }),
     );
+  });
+
+  it('stores password hash when registering with password', async () => {
+    const { service, identitiesRepository, usersService } = makeService();
+    identitiesRepository.findActiveByProvider.mockResolvedValue(null);
+    usersService.createWithConsents.mockResolvedValue(buildUser());
+
+    await service.registerUser({
+      email: 'user@example.com',
+      password: 'Secret123!',
+    });
+
+    const saveCalls = identitiesRepository.save.mock.calls;
+    const lastSaved = saveCalls[saveCalls.length - 1]?.[0];
+
+    expect(lastSaved.password_hash).toEqual(expect.any(String));
+    expect(lastSaved.password_hash).toContain('scrypt$');
+    expect(lastSaved.password_updated_at).toEqual(expect.any(Date));
   });
 
   it('rejects register when identity already exists', async () => {
@@ -358,6 +378,68 @@ describe('AuthService', () => {
     ) as any;
     expect(payload.sub).toBe(identity.user_id);
     expect(payload.sid).toBe(session.id);
+  });
+
+  it('logs in with password and returns session tokens', async () => {
+    const { service, identitiesRepository, usersService, sessionsRepository } =
+      makeService();
+    const passwordHash = await (service as any).hashPassword('Secret123!');
+
+    const identity = buildIdentity({
+      user_id: 42,
+      password_hash: passwordHash,
+    });
+    identitiesRepository.findActiveByProvider.mockResolvedValue(identity);
+    usersService.getById.mockResolvedValue(buildUser({ id: 42 }));
+
+    const session = buildSession({ id: 88, user_id: 42 });
+    sessionsRepository.save.mockResolvedValue(session);
+
+    const result = await service.loginWithPassword({
+      email: 'user@example.com',
+      password: 'Secret123!',
+    });
+
+    expect(result.sessionId).toBe(88);
+    expect(result.refreshToken).toHaveLength(64);
+
+    const payload = jwt.verify(
+      result.accessToken,
+      baseAuthConfig.jwtSecret,
+    ) as any;
+    expect(payload.sub).toBe(42);
+    expect(payload.sid).toBe(88);
+  });
+
+  it('rejects password login when password is invalid', async () => {
+    const { service, identitiesRepository, usersService } = makeService();
+    const passwordHash = await (service as any).hashPassword('Secret123!');
+
+    identitiesRepository.findActiveByProvider.mockResolvedValue(
+      buildIdentity({ password_hash: passwordHash }),
+    );
+    usersService.getById.mockResolvedValue(buildUser());
+
+    await expect(
+      service.loginWithPassword({
+        email: 'user@example.com',
+        password: 'WrongPass!',
+      }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('rejects password login when password is missing', async () => {
+    const { service, identitiesRepository } = makeService();
+    identitiesRepository.findActiveByProvider.mockResolvedValue(
+      buildIdentity({ password_hash: null }),
+    );
+
+    await expect(
+      service.loginWithPassword({
+        email: 'user@example.com',
+        password: 'Secret123!',
+      }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it('refreshes session with valid token', async () => {

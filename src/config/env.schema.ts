@@ -102,6 +102,16 @@ export const envSchema = z
       .int()
       .min(1)
       .default(RATE_LIMIT_DEFAULTS.authEmailVerifyLimit),
+    THROTTLE_AUTH_PASSWORD_LOGIN_TTL_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .default(RATE_LIMIT_DEFAULTS.authPasswordLoginTtlSeconds),
+    THROTTLE_AUTH_PASSWORD_LOGIN_LIMIT: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .default(RATE_LIMIT_DEFAULTS.authPasswordLoginLimit),
     THROTTLE_AUTH_REFRESH_TTL_SECONDS: z.coerce
       .number()
       .int()

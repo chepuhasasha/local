@@ -26,6 +26,12 @@ export class AuthIdentityEntity {
   @Column({ type: 'text', name: 'provider_user_id' })
   provider_user_id: string;
 
+  @Column({ type: 'text', name: 'password_hash', nullable: true })
+  password_hash: string | null;
+
+  @Column({ type: 'timestamptz', name: 'password_updated_at', nullable: true })
+  password_updated_at: Date | null;
+
   @Column({ type: 'boolean', name: 'is_verified', default: false })
   is_verified: boolean;
 

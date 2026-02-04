@@ -25,6 +25,10 @@ import {
   AuthEmailVerifyResponse,
 } from '@/modules/auth/dto/auth-email-verify.dto';
 import {
+  AuthPasswordLoginRequest,
+  AuthPasswordLoginResponse,
+} from '@/modules/auth/dto/auth-password-login.dto';
+import {
   AuthRefreshRequest,
   AuthRefreshResponse,
 } from '@/modules/auth/dto/auth-refresh.dto';
@@ -59,6 +63,7 @@ export class AuthController {
       email: request.email,
       displayName: request.display_name ?? null,
       marketingOptIn: request.marketing_opt_in ?? false,
+      password: request.password ?? null,
     });
   }
 
@@ -97,6 +102,29 @@ export class AuthController {
     const response = await this.authService.verifyEmailOtp({
       email: request.email,
       code: request.code,
+    });
+
+    return {
+      user_id: response.userId,
+      session_id: response.sessionId,
+      access_token: response.accessToken,
+      refresh_token: response.refreshToken,
+    };
+  }
+
+  /**
+   * Авторизует пользователя по паролю.
+   */
+  @ApiBody({ type: AuthPasswordLoginRequest })
+  @ApiOkResponse({ type: AuthPasswordLoginResponse })
+  @RateLimit('authPasswordLogin')
+  @Post('password/login')
+  async loginPassword(
+    @Body() request: AuthPasswordLoginRequest,
+  ): Promise<AuthPasswordLoginResponse> {
+    const response = await this.authService.loginWithPassword({
+      email: request.email,
+      password: request.password,
     });
 
     return {

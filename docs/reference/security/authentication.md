@@ -10,7 +10,7 @@ Last reviewed: 2026-02-04
 Зафиксировать текущий механизм аутентификации и потоки входа.
 
 ## Контекст
-Используется вход по email + OTP, access/refresh токены и проверка сессий.
+Используются вход по email + OTP, вход по паролю, access/refresh токены и проверка сессий.
 
 ## Шаги
 1. Ознакомьтесь с текущим статусом и ограничениями.
@@ -18,15 +18,17 @@ Last reviewed: 2026-02-04
 3. При изменениях обновляйте этот документ и API-эндпоинты.
 
 ## Текущее состояние
-- Реализованы эндпоинты `/auth/*` (register, email + OTP, refresh, logout, `/auth/me`).
+- Реализованы эндпоинты `/auth/*` (register, email + OTP, password login, refresh, logout, `/auth/me`).
+- В `/auth/register` пароль передаётся опционально и сохраняется в `auth_identity`.
 - Access-токены (`Bearer`) используются для `/auth/me` и `/auth/logout`.
 - Refresh-токены хранятся как хэш в `auth_session`.
+- Пароли хранятся как `scrypt`-хэш с солью в `auth_identity.password_hash`.
 - Доменные таблицы и сервисы для identity/OTP/сессий добавлены.
 - Остальные эндпоинты публичны.
 - В non-production OTP возвращается в ответе; если SMTP не настроен, код логируется и письмо не отправляется.
 - В production требуется SMTP (минимум `MAILER_HOST`, `MAILER_PORT`, `MAILER_FROM`). Если он не настроен, `/auth/email/start` завершится ошибкой.
 - Запросы OTP ограничены по частоте (`AUTH_OTP_COOLDOWN_SECONDS`) и по количеству в окне (`AUTH_OTP_WINDOW_SECONDS` + `AUTH_OTP_MAX_PER_WINDOW`).
-- Дополнительно действует throttling на `/auth/email/start`, `/auth/email/verify`, `/auth/refresh`.
+- Дополнительно действует throttling на `/auth/email/start`, `/auth/email/verify`, `/auth/password/login`, `/auth/refresh`.
 
 **Заголовок для access-токена:**
 
@@ -36,7 +38,7 @@ Authorization: Bearer <access_token>
 
 ## Состав модуля Auth
 - `AuthController` — HTTP точки входа `/auth/*`.
-- `AuthService` — бизнес-логика OTP, сессий и JWT.
+- `AuthService` — бизнес-логика OTP, паролей, сессий и JWT.
 - Репозитории: `AuthIdentitiesRepository`, `AuthOtpsRepository`, `AuthSessionsRepository`.
 - Сущности: `AuthIdentityEntity`, `AuthOtpEntity`, `AuthSessionEntity`.
 - `AccessTokenGuard` — проверяет access-токен и кладёт пользователя в `request.auth`.
@@ -52,6 +54,7 @@ flowchart TD
   Client["Client"] -->|"POST /auth/register"| AuthController
   Client -->|"POST /auth/email/start"| AuthController
   Client -->|"POST /auth/email/verify"| AuthController
+  Client -->|"POST /auth/password/login"| AuthController
   Client -->|"POST /auth/refresh"| AuthController
   Client -->|"POST /auth/logout"| AuthController
   Client -->|"GET /auth/me (Bearer)"| AccessTokenGuard
@@ -162,6 +165,30 @@ sequenceDiagram
   AuthController-->>Client: 200 OK
 ```
 
+### Вход по паролю (`/auth/password/login`)
+
+```mermaid
+sequenceDiagram
+  participant Client
+  participant AuthController
+  participant AuthService
+  participant AuthIdentitiesRepository
+  participant AuthSessionsRepository
+  participant UsersService
+  participant DB
+
+  Client->>AuthController: POST /auth/password/login
+  AuthController->>AuthService: loginWithPassword(email, password)
+  AuthService->>AuthIdentitiesRepository: findActiveByProvider(email)
+  AuthIdentitiesRepository->>DB: SELECT auth_identity
+  AuthService->>UsersService: get user
+  UsersService->>DB: SELECT users
+  AuthService->>AuthSessionsRepository: create session (refresh_hash)
+  AuthSessionsRepository->>DB: INSERT auth_session
+  AuthService-->>AuthController: access + refresh tokens
+  AuthController-->>Client: 200 OK
+```
+
 ### Обновление refresh-сессии (`/auth/refresh`)
 
 ```mermaid
@@ -215,6 +242,7 @@ sequenceDiagram
 2. Проверяется, что identity для email отсутствует.
 3. Создаётся запись пользователя с `terms_accepted_at`, `privacy_accepted_at` и `marketing_opt_in`.
 4. Создаётся `auth_identity` для email.
+5. Если передан пароль, сохраняется его `scrypt`-хэш в `auth_identity.password_hash`.
 
 ### 2) Запрос OTP по email (`POST /auth/email/start`)
 1. Email нормализуется.
@@ -234,20 +262,27 @@ sequenceDiagram
 4. Identity помечается как верифицированный.
 5. Создаётся refresh-сессия и выдаются access + refresh токены.
 
-### 4) Обновление сессии (`POST /auth/refresh`)
+### 4) Вход по паролю (`POST /auth/password/login`)
+1. Email нормализуется.
+2. Ищется активный identity по email.
+3. Проверяется хэш пароля (`auth_identity.password_hash`).
+4. Пользователь проверяется на архивирование.
+5. Создаётся refresh-сессия и выдаются access + refresh токены.
+
+### 5) Обновление сессии (`POST /auth/refresh`)
 1. Проверяется наличие сессии и отсутствие `revoked_at`.
 2. Проверяется срок жизни refresh-сессии (`AUTH_REFRESH_TTL_SECONDS`, считается от `created_at`).
 3. Проверяется хэш refresh-токена.
 4. Refresh-токен ротируется (создаётся новый), `last_seen_at` обновляется.
 5. Возвращается новый access + refresh токен.
 
-### 5) Выход (`POST /auth/logout`)
+### 6) Выход (`POST /auth/logout`)
 1. Требуется `Bearer` access-токен.
 2. `session_id` должен совпадать с сессией в access-токене.
 3. Сессия помечается как отозванная (`revoked_at`).
 4. Возвращается `revoked_at`.
 
-### 6) Профиль пользователя (`GET /auth/me`)
+### 7) Профиль пользователя (`GET /auth/me`)
 1. `AccessTokenGuard` валидирует JWT и проверяет сессию.
 2. Пользователь извлекается из `request.auth`.
 3. Возвращается `User`.
@@ -256,6 +291,7 @@ sequenceDiagram
 - Access-токен — JWT с payload `{ sub, sid }`, TTL = `AUTH_ACCESS_TTL_SECONDS`.
 - Refresh-токен — случайная строка (hex), хранится только как SHA-256 хэш.
 - OTP — цифровая строка длиной `AUTH_OTP_LENGTH`, хранится как SHA-256 хэш.
+- Пароль — хранится как `scrypt`-хэш с солью в `auth_identity.password_hash`.
 
 ## Проверки при доступе
 - Access-токен должен быть валиден и подписан `AUTH_JWT_SECRET`.
@@ -274,7 +310,7 @@ sequenceDiagram
 - [Траблшутинг](../../ops/troubleshooting.md)
 
 ## Ограничения
-Документ описывает текущую реализацию email-OTP. Другие провайдеры не поддерживаются.
+Документ описывает текущую реализацию email-OTP и вход по паролю. Другие провайдеры не поддерживаются.
 
 ## См. также
 - [API: эндпоинты](../api/endpoints.md)
