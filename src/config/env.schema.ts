@@ -16,8 +16,23 @@ const optionalNumber = (min: number, max: number) =>
     z.coerce.number().int().min(min).max(max).optional(),
   );
 
+const parseBoolean = (value: unknown): unknown => {
+  if (value === '' || value === null || value === undefined) {
+    return undefined;
+  }
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'y'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'n'].includes(normalized)) return false;
+  }
+  return value;
+};
+
 const optionalBoolean = () =>
-  z.preprocess(emptyToUndefined, z.coerce.boolean().optional());
+  z.preprocess(parseBoolean, z.boolean().optional());
 
 /**
  * Схема переменных окружения приложения.
@@ -45,12 +60,17 @@ export const envSchema = z
       .default(60 * 60 * 24 * 30),
     AUTH_OTP_TTL_SECONDS: z.coerce.number().int().positive().default(600),
     AUTH_OTP_LENGTH: z.coerce.number().int().min(4).max(10).default(6),
+    AUTH_OTP_COOLDOWN_SECONDS: z.coerce.number().int().min(0).default(60),
+    AUTH_OTP_WINDOW_SECONDS: z.coerce.number().int().min(0).default(3600),
+    AUTH_OTP_MAX_PER_WINDOW: z.coerce.number().int().min(0).default(5),
     MAILER_HOST: optionalString(),
     MAILER_PORT: optionalNumber(1, 65535),
     MAILER_USER: optionalString(),
     MAILER_PASSWORD: optionalString(),
     MAILER_FROM: optionalString(),
     MAILER_SECURE: optionalBoolean(),
+    SWAGGER_ENABLED: optionalBoolean(),
+    HEALTH_DB_TIMEOUT_MS: z.coerce.number().int().min(1).optional(),
     ADDRESS_DATA_MONTH: z
       .string()
       .regex(/^\d{6}$/)

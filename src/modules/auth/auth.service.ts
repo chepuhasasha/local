@@ -1,5 +1,7 @@
 import {
   BadRequestException,
+  HttpException,
+  HttpStatus,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -108,6 +110,8 @@ export class AuthService {
     if (!identity) {
       throw new NotFoundException('Пользователь не зарегистрирован.');
     }
+
+    await this.enforceOtpRateLimit(identity.id);
 
     const code = this.generateOtpCode(authConfig.otpLength);
     const otp = await this.createOtp({
@@ -466,6 +470,37 @@ export class AuthService {
       return false;
     }
     return Date.now() - createdAt > refreshTtlSeconds * 1000;
+  }
+
+  private async enforceOtpRateLimit(identityId: number): Promise<void> {
+    const now = Date.now();
+    const { otpCooldownSeconds, otpWindowSeconds, otpMaxPerWindow } =
+      this.authConfig;
+
+    if (otpCooldownSeconds > 0) {
+      const latest = await this.otpsRepository.findLatestByIdentity(identityId);
+      const createdAt = latest?.created_at?.getTime?.();
+      if (createdAt && now - createdAt < otpCooldownSeconds * 1000) {
+        throw new HttpException(
+          'Слишком частый запрос OTP.',
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+    }
+
+    if (otpWindowSeconds > 0 && otpMaxPerWindow > 0) {
+      const since = new Date(now - otpWindowSeconds * 1000);
+      const count = await this.otpsRepository.countCreatedSince(
+        identityId,
+        since,
+      );
+      if (count >= otpMaxPerWindow) {
+        throw new HttpException(
+          'Превышен лимит запросов OTP.',
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+    }
   }
 
   private shouldExposeOtp(): boolean {

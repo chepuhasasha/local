@@ -120,7 +120,9 @@ describe('AddressesImportService helpers', () => {
     expect((service as any).createDecoder()).toBeInstanceOf(TextDecoder);
 
     const httpLib = (service as any).getHttpLib(new URL('http://example.com'));
-    const httpsLib = (service as any).getHttpLib(new URL('https://example.com'));
+    const httpsLib = (service as any).getHttpLib(
+      new URL('https://example.com'),
+    );
     expect(httpLib).not.toBe(httpsLib);
   });
 
@@ -166,7 +168,10 @@ describe('AddressesImportService helpers', () => {
     const builds = (service as any).pickBuildEntries(files);
 
     expect(road?.path).toBe('road_code_total.txt');
-    expect(builds.map((b: any) => b.path)).toEqual(['build_1.txt', 'build_2.txt']);
+    expect(builds.map((b: any) => b.path)).toEqual([
+      'build_1.txt',
+      'build_2.txt',
+    ]);
   });
 
   it('iterates lines and counts lines', async () => {
@@ -228,8 +233,16 @@ describe('AddressesImportService helpers', () => {
 
     expect(cols).toHaveLength(44);
 
-    const sqlUpsert = (service as any).buildUnnestSql(cols, 'upsert', 'addresses');
-    const sqlReplace = (service as any).buildUnnestSql(cols, 'replace', 'addresses');
+    const sqlUpsert = (service as any).buildUnnestSql(
+      cols,
+      'upsert',
+      'addresses',
+    );
+    const sqlReplace = (service as any).buildUnnestSql(
+      cols,
+      'replace',
+      'addresses',
+    );
 
     expect(sqlUpsert).toContain('ON CONFLICT');
     expect(sqlReplace).not.toContain('ON CONFLICT');

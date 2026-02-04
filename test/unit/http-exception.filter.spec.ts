@@ -22,7 +22,10 @@ describe('HttpExceptionFilter', () => {
     const request = { url: '/test' };
 
     requestContext.run('req-1', () => {
-      filter.catch(new BadRequestException('bad'), makeHost(request, response) as any);
+      filter.catch(
+        new BadRequestException('bad'),
+        makeHost(request, response) as any,
+      );
     });
 
     expect(logger.warn).toHaveBeenCalled();

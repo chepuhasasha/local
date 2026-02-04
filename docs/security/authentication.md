@@ -15,6 +15,7 @@
 - Остальные эндпоинты публичны и не требуют токена.
 - В non-production OTP возвращается в ответе; если SMTP не настроен, код дополнительно логируется и письмо не отправляется.
 - В production требуется настроенный SMTP (минимум `MAILER_HOST`, `MAILER_PORT`, `MAILER_FROM`; опционально `MAILER_USER`/`MAILER_PASSWORD`). Если он не настроен, `/auth/email/start` завершится ошибкой и код не будет выдан.
+- Запросы OTP ограничены по частоте (`AUTH_OTP_COOLDOWN_SECONDS`) и по количеству в окне (`AUTH_OTP_WINDOW_SECONDS` + `AUTH_OTP_MAX_PER_WINDOW`).
 
 **Заголовок для access-токена:**
 
@@ -112,6 +113,7 @@ sequenceDiagram
   else identity found
     AuthService->>UsersService: get user
     UsersService->>DB: SELECT users
+    AuthService->>AuthOtpsRepository: check OTP cooldown/window limits
     AuthService->>AuthOtpsRepository: create OTP (hash + expires)
     AuthOtpsRepository->>DB: INSERT auth_otp
     AuthService->>MailerService: sendOtpEmail
@@ -212,6 +214,11 @@ sequenceDiagram
 3. Создаётся OTP, код хэшируется (SHA-256) и сохраняется в `auth_otp`.
 4. Код отправляется через SMTP, либо логируется в non-production.
 5. В ответ возвращаются `identity_id`, `otp_id`, `expires_at` и `code` (только non-production).
+
+Перед созданием OTP применяется лимит:
+
+- `AUTH_OTP_COOLDOWN_SECONDS` — минимальный интервал между выдачами.
+- `AUTH_OTP_WINDOW_SECONDS` + `AUTH_OTP_MAX_PER_WINDOW` — максимум выдач в окне времени.
 
 ### 3) Проверка OTP (`POST /auth/email/verify`)
 

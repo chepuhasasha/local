@@ -1,4 +1,7 @@
-import { buildTypeOrmOptions, createDataSource } from '@/infrastructure/database/typeorm.config';
+import {
+  buildTypeOrmOptions,
+  createDataSource,
+} from '@/infrastructure/database/typeorm.config';
 
 const baseDbConfig = {
   postgres: {

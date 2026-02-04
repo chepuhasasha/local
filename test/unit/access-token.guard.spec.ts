@@ -14,9 +14,9 @@ describe('AccessTokenGuard', () => {
     const guard = new AccessTokenGuard(authService as any);
     const request = { headers: {} };
 
-    await expect(guard.canActivate(makeContext(request) as any)).rejects.toBeInstanceOf(
-      UnauthorizedException,
-    );
+    await expect(
+      guard.canActivate(makeContext(request) as any),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it('rejects when scheme is invalid', async () => {
@@ -24,9 +24,9 @@ describe('AccessTokenGuard', () => {
     const guard = new AccessTokenGuard(authService as any);
     const request = { headers: { authorization: 'Token abc' } };
 
-    await expect(guard.canActivate(makeContext(request) as any)).rejects.toBeInstanceOf(
-      UnauthorizedException,
-    );
+    await expect(
+      guard.canActivate(makeContext(request) as any),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it('accepts valid bearer token', async () => {

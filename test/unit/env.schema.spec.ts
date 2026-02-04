@@ -35,4 +35,17 @@ describe('env validation', () => {
       }),
     ).not.toThrow();
   });
+
+  it('parses boolean flags from strings', () => {
+    const result = validateEnv({
+      ...baseEnv,
+      MAILER_SECURE: 'false',
+      ADDRESS_DROP_INDEXES: 'true',
+      SWAGGER_ENABLED: '0',
+    });
+
+    expect(result.MAILER_SECURE).toBe(false);
+    expect(result.ADDRESS_DROP_INDEXES).toBe(true);
+    expect(result.SWAGGER_ENABLED).toBe(false);
+  });
 });

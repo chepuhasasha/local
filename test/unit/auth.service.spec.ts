@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  HttpStatus,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -14,6 +15,9 @@ const baseAuthConfig = {
   refreshTtlSeconds: 3600,
   otpTtlSeconds: 300,
   otpLength: 6,
+  otpCooldownSeconds: 60,
+  otpWindowSeconds: 3600,
+  otpMaxPerWindow: 5,
 };
 
 const makeService = () => {
@@ -25,6 +29,8 @@ const makeService = () => {
   };
   const otpsRepository = {
     findActiveByIdentityAndHash: jest.fn(),
+    findLatestByIdentity: jest.fn(),
+    countCreatedSince: jest.fn(),
     create: jest.fn((data) => ({ id: 11, ...data })),
     save: jest.fn(async (data) => data),
     findById: jest.fn(),
@@ -154,7 +160,9 @@ describe('AuthService', () => {
 
   it('rejects register when identity already exists', async () => {
     const { service, identitiesRepository } = makeService();
-    identitiesRepository.findActiveByProvider.mockResolvedValue(buildIdentity());
+    identitiesRepository.findActiveByProvider.mockResolvedValue(
+      buildIdentity(),
+    );
 
     await expect(
       service.registerUser({ email: 'user@example.com' }),
@@ -162,13 +170,20 @@ describe('AuthService', () => {
   });
 
   it('starts email auth and returns otp in non-production', async () => {
-    const { service, identitiesRepository, usersService, otpsRepository, mailerService } =
-      makeService();
+    const {
+      service,
+      identitiesRepository,
+      usersService,
+      otpsRepository,
+      mailerService,
+    } = makeService();
     process.env.NODE_ENV = 'test';
 
     const identity = buildIdentity();
     identitiesRepository.findActiveByProvider.mockResolvedValue(identity);
     usersService.getById.mockResolvedValue(buildUser());
+    otpsRepository.findLatestByIdentity.mockResolvedValue(null);
+    otpsRepository.countCreatedSince.mockResolvedValue(0);
     otpsRepository.save.mockImplementation(async (data) => ({
       ...data,
       id: 9,
@@ -188,8 +203,12 @@ describe('AuthService', () => {
       makeService();
     process.env.NODE_ENV = 'production';
 
-    identitiesRepository.findActiveByProvider.mockResolvedValue(buildIdentity());
+    identitiesRepository.findActiveByProvider.mockResolvedValue(
+      buildIdentity(),
+    );
     usersService.getById.mockResolvedValue(buildUser());
+    otpsRepository.findLatestByIdentity.mockResolvedValue(null);
+    otpsRepository.countCreatedSince.mockResolvedValue(0);
     otpsRepository.save.mockImplementation(async (data) => ({
       ...data,
       id: 9,
@@ -204,19 +223,60 @@ describe('AuthService', () => {
     const { service, identitiesRepository } = makeService();
     identitiesRepository.findActiveByProvider.mockResolvedValue(null);
 
-    await expect(service.startEmailAuth('user@example.com')).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(
+      service.startEmailAuth('user@example.com'),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('rejects email auth when user archived', async () => {
     const { service, identitiesRepository, usersService } = makeService();
-    identitiesRepository.findActiveByProvider.mockResolvedValue(buildIdentity());
-    usersService.getById.mockResolvedValue(buildUser({ archived_at: new Date() }));
-
-    await expect(service.startEmailAuth('user@example.com')).rejects.toBeInstanceOf(
-      UnauthorizedException,
+    identitiesRepository.findActiveByProvider.mockResolvedValue(
+      buildIdentity(),
     );
+    usersService.getById.mockResolvedValue(
+      buildUser({ archived_at: new Date() }),
+    );
+
+    await expect(
+      service.startEmailAuth('user@example.com'),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('rejects email auth when otp cooldown not elapsed', async () => {
+    const { service, identitiesRepository, usersService, otpsRepository } =
+      makeService();
+    identitiesRepository.findActiveByProvider.mockResolvedValue(
+      buildIdentity(),
+    );
+    usersService.getById.mockResolvedValue(buildUser());
+    otpsRepository.findLatestByIdentity.mockResolvedValue({
+      created_at: new Date(Date.now() - 10 * 1000),
+    });
+
+    await expect(
+      service.startEmailAuth('user@example.com'),
+    ).rejects.toMatchObject({
+      status: HttpStatus.TOO_MANY_REQUESTS,
+    });
+  });
+
+  it('rejects email auth when otp window limit exceeded', async () => {
+    const { service, identitiesRepository, usersService, otpsRepository } =
+      makeService();
+    identitiesRepository.findActiveByProvider.mockResolvedValue(
+      buildIdentity(),
+    );
+    usersService.getById.mockResolvedValue(buildUser());
+    otpsRepository.findLatestByIdentity.mockResolvedValue(null);
+    otpsRepository.countCreatedSince.mockResolvedValue(
+      baseAuthConfig.otpMaxPerWindow,
+    );
+
+    await expect(
+      service.startEmailAuth('user@example.com'),
+    ).rejects.toMatchObject({
+      status: HttpStatus.TOO_MANY_REQUESTS,
+    });
   });
 
   it('rejects otp verification with wrong length', async () => {
@@ -238,7 +298,9 @@ describe('AuthService', () => {
 
   it('rejects otp verification when user missing', async () => {
     const { service, identitiesRepository, usersService } = makeService();
-    identitiesRepository.findActiveByProvider.mockResolvedValue(buildIdentity());
+    identitiesRepository.findActiveByProvider.mockResolvedValue(
+      buildIdentity(),
+    );
     usersService.getById.mockRejectedValue(new Error('no user'));
 
     await expect(
@@ -247,8 +309,11 @@ describe('AuthService', () => {
   });
 
   it('rejects otp verification when otp not found', async () => {
-    const { service, identitiesRepository, usersService, otpsRepository } = makeService();
-    identitiesRepository.findActiveByProvider.mockResolvedValue(buildIdentity());
+    const { service, identitiesRepository, usersService, otpsRepository } =
+      makeService();
+    identitiesRepository.findActiveByProvider.mockResolvedValue(
+      buildIdentity(),
+    );
     usersService.getById.mockResolvedValue(buildUser());
     otpsRepository.findActiveByIdentityAndHash.mockResolvedValue(null);
 
@@ -287,7 +352,10 @@ describe('AuthService', () => {
     expect(result.sessionId).toBe(77);
     expect(result.refreshToken).toHaveLength(64);
 
-    const payload = jwt.verify(result.accessToken, baseAuthConfig.jwtSecret) as any;
+    const payload = jwt.verify(
+      result.accessToken,
+      baseAuthConfig.jwtSecret,
+    ) as any;
     expect(payload.sub).toBe(identity.user_id);
     expect(payload.sid).toBe(session.id);
   });
@@ -322,7 +390,9 @@ describe('AuthService', () => {
 
   it('rejects refresh when session expired', async () => {
     const { service, sessionsRepository } = makeService();
-    const expired = new Date(Date.now() - baseAuthConfig.refreshTtlSeconds * 1000 - 10);
+    const expired = new Date(
+      Date.now() - baseAuthConfig.refreshTtlSeconds * 1000 - 10,
+    );
     const session = buildSession({ created_at: expired, id: 5 });
     sessionsRepository.findById.mockResolvedValue(session);
 
@@ -357,15 +427,14 @@ describe('AuthService', () => {
     sessionsRepository.findById.mockResolvedValue(session);
     usersService.getById.mockResolvedValue(buildUser({ id: 1 }));
 
-    const accessToken = jwt.sign(
-      { sub: 1, sid: 1 },
-      baseAuthConfig.jwtSecret,
-      { algorithm: 'HS256', expiresIn: 300 },
-    );
+    const accessToken = jwt.sign({ sub: 1, sid: 1 }, baseAuthConfig.jwtSecret, {
+      algorithm: 'HS256',
+      expiresIn: 300,
+    });
 
-    await expect(service.authenticateAccessToken(accessToken)).rejects.toBeInstanceOf(
-      UnauthorizedException,
-    );
+    await expect(
+      service.authenticateAccessToken(accessToken),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it('rejects invalid access token format', () => {

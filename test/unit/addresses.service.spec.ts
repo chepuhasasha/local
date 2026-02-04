@@ -15,9 +15,9 @@ describe('AddressesService', () => {
   it('rejects empty query', async () => {
     const { service } = makeService();
 
-    await expect(service.search({ query: '   ' } as any)).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+    await expect(
+      service.search({ query: '   ' } as any),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('normalizes search params and maps results', async () => {

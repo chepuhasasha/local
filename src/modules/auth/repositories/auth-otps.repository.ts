@@ -37,4 +37,22 @@ export class AuthOtpsRepository {
       .orderBy('otp.id', 'DESC')
       .getOne();
   }
+
+  async findLatestByIdentity(
+    identityId: number,
+  ): Promise<AuthOtpEntity | null> {
+    return this.authOtpRepository
+      .createQueryBuilder('otp')
+      .where('otp.identity_id = :identityId', { identityId })
+      .orderBy('otp.created_at', 'DESC')
+      .getOne();
+  }
+
+  async countCreatedSince(identityId: number, since: Date): Promise<number> {
+    return this.authOtpRepository
+      .createQueryBuilder('otp')
+      .where('otp.identity_id = :identityId', { identityId })
+      .andWhere('otp.created_at >= :since', { since })
+      .getCount();
+  }
 }

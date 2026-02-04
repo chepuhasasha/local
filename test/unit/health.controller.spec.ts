@@ -30,7 +30,11 @@ describe('HealthController', () => {
 
   it('returns readiness when ok', async () => {
     const { controller, healthService } = makeController();
-    healthService.getReadiness.mockResolvedValue({ status: 'ok', timestamp: 't', checks: [] });
+    healthService.getReadiness.mockResolvedValue({
+      status: 'ok',
+      timestamp: 't',
+      checks: [],
+    });
 
     await expect(controller.getReady()).resolves.toEqual({
       status: 'ok',
@@ -41,8 +45,14 @@ describe('HealthController', () => {
 
   it('throws when readiness not ok', async () => {
     const { controller, healthService } = makeController();
-    healthService.getReadiness.mockResolvedValue({ status: 'fail', timestamp: 't', checks: [] });
+    healthService.getReadiness.mockResolvedValue({
+      status: 'fail',
+      timestamp: 't',
+      checks: [],
+    });
 
-    await expect(controller.getReady()).rejects.toBeInstanceOf(ServiceUnavailableException);
+    await expect(controller.getReady()).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
   });
 });

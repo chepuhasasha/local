@@ -14,7 +14,10 @@ const makeController = () => {
     getById: jest.fn(),
   };
 
-  const controller = new AuthController(authService as any, usersService as any);
+  const controller = new AuthController(
+    authService as any,
+    usersService as any,
+  );
   return { controller, authService, usersService };
 };
 
@@ -45,7 +48,9 @@ describe('AuthController', () => {
       code: '123456',
     });
 
-    const result = await controller.startEmail({ email: 'user@example.com' } as any);
+    const result = await controller.startEmail({
+      email: 'user@example.com',
+    } as any);
 
     expect(result).toEqual({
       identity_id: 2,
@@ -120,10 +125,9 @@ describe('AuthController', () => {
       revoked_at: new Date('2024-01-01T00:00:00Z'),
     });
 
-    const result = await controller.logout(
-      { userId: 1, sessionId: 2 },
-      { session_id: 2 } as any,
-    );
+    const result = await controller.logout({ userId: 1, sessionId: 2 }, {
+      session_id: 2,
+    } as any);
 
     expect(result).toEqual({
       session_id: 2,

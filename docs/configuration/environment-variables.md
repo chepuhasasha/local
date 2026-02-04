@@ -15,6 +15,7 @@
 | `NODE_ENV` | `development \| production \| test` | нет | `development` | Среда выполнения. |
 | `PORT` | `1..65535` | нет | `3000` | HTTP порт API. |
 | `LOG_LEVEL` | `log \| error \| warn \| debug \| verbose` | нет | `log` | Уровень логирования. |
+| `SWAGGER_ENABLED` | boolean | нет | `true` (non-production), `false` (production) | Включает Swagger UI `/docs`. |
 | `POSTGRES_HOST` | string | да | — | Хост PostgreSQL. |
 | `POSTGRES_PORT` | `1..65535` | да | — | Порт PostgreSQL. |
 | `POSTGRES_USER` | string | да | — | Пользователь PostgreSQL. |
@@ -25,12 +26,16 @@
 | `AUTH_REFRESH_TTL_SECONDS` | positive int | нет | `2592000` | TTL refresh-сессии в секундах. |
 | `AUTH_OTP_TTL_SECONDS` | positive int | нет | `600` | TTL одноразового кода в секундах. |
 | `AUTH_OTP_LENGTH` | `4..10` | нет | `6` | Длина одноразового кода. |
+| `AUTH_OTP_COOLDOWN_SECONDS` | int (>=0) | нет | `60` | Минимальный интервал между выдачами OTP на одну identity (0 = выключено). |
+| `AUTH_OTP_WINDOW_SECONDS` | int (>=0) | нет | `3600` | Размер окна для лимита OTP (0 = выключено). |
+| `AUTH_OTP_MAX_PER_WINDOW` | int (>=0) | нет | `5` | Максимум OTP в окне (0 = выключено). |
 | `MAILER_HOST` | string | нет | — | SMTP host (отправка email включается вместе с `MAILER_PORT` и `MAILER_FROM`). |
 | `MAILER_PORT` | `1..65535` | нет | — | SMTP port. |
 | `MAILER_USER` | string | нет | — | SMTP user. |
 | `MAILER_PASSWORD` | string | нет | — | SMTP password. |
 | `MAILER_FROM` | string | нет | — | Адрес отправителя. |
 | `MAILER_SECURE` | boolean | нет | `false` | Использовать TLS при отправке. |
+| `HEALTH_DB_TIMEOUT_MS` | `>=1` | нет | `2000` | Таймаут проверки базы в `/health/ready`. |
 
 Отправка email включается только если заданы `MAILER_HOST`, `MAILER_PORT` и `MAILER_FROM`. `MAILER_USER`/`MAILER_PASSWORD` нужны только если SMTP требует аутентификацию.
 

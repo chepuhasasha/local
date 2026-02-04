@@ -45,14 +45,27 @@ function setupApp(app: INestApplication): void {
 /**
  * Возвращает порт из конфигурации приложения.
  */
-function getPort(app: INestApplicationContext): number {
+function getAppConfig(app: INestApplicationContext): AppConfig['app'] {
   const configService = app.get(ConfigService);
   const raw: unknown = configService.get('app', { infer: true });
   if (!raw || typeof raw !== 'object') {
     throw new Error('App configuration is missing.');
   }
-  const config = raw as AppConfig['app'];
-  return config.port;
+  return raw as AppConfig['app'];
+}
+
+/**
+ * Возвращает порт из конфигурации приложения.
+ */
+function getPort(app: INestApplicationContext): number {
+  return getAppConfig(app).port;
+}
+
+/**
+ * Проверяет, включён ли Swagger UI.
+ */
+function isSwaggerEnabled(app: INestApplicationContext): boolean {
+  return getAppConfig(app).swaggerEnabled ?? false;
 }
 
 /**
@@ -67,7 +80,9 @@ async function bootstrap(): Promise<void> {
   app.enableShutdownHooks();
 
   setupApp(app);
-  setupSwagger(app);
+  if (isSwaggerEnabled(app)) {
+    setupSwagger(app);
+  }
 
   await app.listen(getPort(app));
 }

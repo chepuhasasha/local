@@ -10,6 +10,10 @@ export const configuration = () => {
     app: {
       env: env.NODE_ENV,
       port: env.PORT,
+      swaggerEnabled:
+        typeof env.SWAGGER_ENABLED === 'boolean'
+          ? env.SWAGGER_ENABLED
+          : env.NODE_ENV !== 'production',
     },
     logger: {
       level: env.LOG_LEVEL,
@@ -29,6 +33,9 @@ export const configuration = () => {
       refreshTtlSeconds: env.AUTH_REFRESH_TTL_SECONDS,
       otpTtlSeconds: env.AUTH_OTP_TTL_SECONDS,
       otpLength: env.AUTH_OTP_LENGTH,
+      otpCooldownSeconds: env.AUTH_OTP_COOLDOWN_SECONDS,
+      otpWindowSeconds: env.AUTH_OTP_WINDOW_SECONDS,
+      otpMaxPerWindow: env.AUTH_OTP_MAX_PER_WINDOW,
     },
     mailer: {
       host: env.MAILER_HOST ?? null,

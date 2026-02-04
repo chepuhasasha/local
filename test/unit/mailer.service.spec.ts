@@ -21,13 +21,15 @@ describe('MailerService', () => {
     const configService = { get: jest.fn(() => null) };
     const logger = { warn: jest.fn(), error: jest.fn() };
 
-    expect(() => new MailerService(configService as any, logger as any)).toThrow(
-      'Mailer configuration is missing.',
-    );
+    expect(
+      () => new MailerService(configService as any, logger as any),
+    ).toThrow('Mailer configuration is missing.');
   });
 
   it('logs fallback and skips sending when disabled in dev', async () => {
-    const configService = { get: jest.fn(() => ({ host: null, port: null, from: null })) };
+    const configService = {
+      get: jest.fn(() => ({ host: null, port: null, from: null })),
+    };
     const logger = { warn: jest.fn(), error: jest.fn() };
     process.env.NODE_ENV = 'test';
 
@@ -44,7 +46,9 @@ describe('MailerService', () => {
   });
 
   it('throws when disabled in production', async () => {
-    const configService = { get: jest.fn(() => ({ host: null, port: null, from: null })) };
+    const configService = {
+      get: jest.fn(() => ({ host: null, port: null, from: null })),
+    };
     const logger = { warn: jest.fn(), error: jest.fn() };
     process.env.NODE_ENV = 'production';
 

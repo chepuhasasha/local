@@ -131,7 +131,8 @@ export class HealthService {
     }
 
     try {
-      await this.dataSource.query('SELECT 1');
+      const timeoutMs = this.getDbTimeoutMs();
+      await this.withTimeout(this.dataSource.query('SELECT 1'), timeoutMs);
       return { name: 'db', status: 'ok' };
     } catch (err) {
       return {
@@ -151,5 +152,40 @@ export class HealthService {
       timestamp: this.getTimestamp(),
       checks,
     };
+  }
+
+  /**
+   * Возвращает таймаут проверки базы данных в миллисекундах.
+   */
+  private getDbTimeoutMs(): number {
+    const raw =
+      this.config.get<string>('HEALTH_DB_TIMEOUT_MS') ??
+      process.env.HEALTH_DB_TIMEOUT_MS;
+    const parsed = raw ? Number(raw) : NaN;
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return Math.trunc(parsed);
+    }
+    return 2000;
+  }
+
+  /**
+   * Оборачивает обещание таймаутом.
+   */
+  private async withTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs: number,
+  ): Promise<T> {
+    let timer: NodeJS.Timeout | null = null;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error(`DB check timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+    });
+
+    try {
+      return await Promise.race([promise, timeoutPromise]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 }

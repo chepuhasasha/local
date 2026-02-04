@@ -10,7 +10,10 @@ describe('AppLoggerService', () => {
 
   it('sets log levels based on config', () => {
     const configService = { get: jest.fn(() => ({ level: 'debug' })) };
-    const setSpy = jest.spyOn(AppLoggerService.prototype as any, 'setLogLevels');
+    const setSpy = jest.spyOn(
+      AppLoggerService.prototype as any,
+      'setLogLevels',
+    );
 
     new AppLoggerService(configService as any);
 

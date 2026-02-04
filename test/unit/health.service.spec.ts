@@ -1,9 +1,14 @@
 import { HealthService } from '@/modules/health/health.service';
 
-const makeService = (configValue?: string, dataSource?: any) => {
+const makeService = (
+  configValue?: string,
+  dataSource?: any,
+  dbTimeoutMs?: string,
+) => {
   const config = {
     get: jest.fn((key: string) => {
       if (key === 'HEALTH_VERBOSE') return configValue;
+      if (key === 'HEALTH_DB_TIMEOUT_MS') return dbTimeoutMs;
       return undefined;
     }),
   };
@@ -67,7 +72,9 @@ describe('HealthService', () => {
   });
 
   it('returns readiness fail when db query throws', async () => {
-    const dataSource = { query: jest.fn().mockRejectedValue(new Error('down')) };
+    const dataSource = {
+      query: jest.fn().mockRejectedValue(new Error('down')),
+    };
     const { service } = makeService(undefined, dataSource);
 
     const readiness = await service.getReadiness();
@@ -75,5 +82,20 @@ describe('HealthService', () => {
     expect(readiness.status).toBe('fail');
     expect(readiness.checks[0].status).toBe('fail');
     expect(readiness.checks[0].details?.error).toMatch(/down/);
+  });
+
+  it('returns readiness fail when db check times out', async () => {
+    const dataSource = {
+      query: jest.fn(
+        () => new Promise((resolve) => setTimeout(() => resolve([1]), 50)),
+      ),
+    };
+    const { service } = makeService(undefined, dataSource, '10');
+
+    const readiness = await service.getReadiness();
+
+    expect(readiness.status).toBe('fail');
+    expect(readiness.checks[0].status).toBe('fail');
+    expect(readiness.checks[0].details?.error).toMatch(/timed out/i);
   });
 });
